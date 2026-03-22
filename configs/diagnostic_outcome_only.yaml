@@ -1,0 +1,30 @@
+name: diagnostic_outcome_only
+research_objective: train an outcome-only baseline on stored diagnostic trajectories before adding online branch-aware or hindsight training.
+env:
+  name: diagnostic_branch_lab
+  split: smoke
+  config: {}
+policy:
+  name: prompted
+  config:
+    exploration_rate: 0.45
+    seed: 7
+trainer:
+  name: outcome_only
+  config: {}
+tracking:
+  backend: local
+  config: {}
+store:
+  sqlite_path: runs/creditlab.sqlite
+  artifact_root: artifacts
+experiment:
+  seeds: [7]
+  budgets:
+    rollout_count: 6
+    max_turns: 4
+    max_prompt_tokens: 128
+    max_completion_tokens: 64
+    max_verifier_calls: 32
+    wall_clock_seconds: 30
+

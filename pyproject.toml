@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "creditlab"
+version = "0.1.0"
+description = "Local-first research lab scaffold for branch-aware credit assignment experiments."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7,<3",
+  "sqlalchemy>=2.0,<3",
+  "pyarrow>=16,<22",
+  "polars>=1.8,<2",
+  "typer>=0.12,<1",
+  "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+]
+wandb = [
+  "wandb>=0.18,<1",
+]
+
+[project.scripts]
+creditlab = "creditlab.cli.main:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

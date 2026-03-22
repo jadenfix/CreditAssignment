@@ -1,0 +1,27 @@
+name: diagnostic_smoke
+research_objective: determine whether action-level branch-aware offline rescoring on replayed trajectories produces better matched-prefix branch selection than outcome-only scoring under equal collection budgets.
+env:
+  name: diagnostic_branch_lab
+  split: smoke
+  config: {}
+policy:
+  name: prompted
+  config:
+    exploration_rate: 0.45
+    seed: 7
+tracking:
+  backend: local
+  config: {}
+store:
+  sqlite_path: runs/creditlab.sqlite
+  artifact_root: artifacts
+experiment:
+  seeds: [7, 11]
+  budgets:
+    rollout_count: 6
+    max_turns: 4
+    max_prompt_tokens: 128
+    max_completion_tokens: 64
+    max_verifier_calls: 32
+    wall_clock_seconds: 30
+
