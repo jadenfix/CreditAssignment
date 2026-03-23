@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
-from creditlab.analysis.reporting import build_run_report, report_to_metric_rows
+from creditlab.analysis.reporting import build_replay_result, build_run_report, report_to_metric_rows
 from creditlab.core.config import ExperimentConfig
 from creditlab.core.interfaces import EnvAdapter, PolicyBackend, TrackerBackend, TrajectoryStore
-from creditlab.core.models import EpisodeRun, ObservationEvent, StateSnapshot, Transition, TreeNode
-from creditlab.core.utils import new_id
+from creditlab.core.models import EpisodeRun, ObservationEvent, RunContext, StateSnapshot, Transition, TreeNode
+from creditlab.core.utils import collect_machine_profile, new_id
 
 
 class RolloutEngine:
@@ -23,19 +22,44 @@ class RolloutEngine:
         self.store = store
         self.tracker = tracker
 
-    def collect(self, config: ExperimentConfig, run_id: str | None = None) -> str:
+    def collect(
+        self,
+        config: ExperimentConfig,
+        run_id: str | None = None,
+        run_context: RunContext | None = None,
+        split_override: str | None = None,
+    ) -> str:
         run_id = run_id or new_id("run")
-        self.store.create_run(config.model_dump(mode="json"), run_id)
-        tasks = self.env.list_tasks(config.env.split)
+        split_name = split_override or config.benchmark.collect_split or config.env.split
+        context = run_context or RunContext()
+        context.split_name = split_name
+        context.benchmark_name = context.benchmark_name or config.benchmark.name
+        context.benchmark_revision = context.benchmark_revision or config.benchmark.revision
+        context.model_backend = context.model_backend or config.model_backend.name
+        context.training_backend = context.training_backend or config.training_backend.name
+        context.deployment_profile = context.deployment_profile or config.deployment.profile
+        context.container_image_tag = context.container_image_tag or config.deployment.container_image
+        context.aws_instance_profile = context.aws_instance_profile or config.deployment.aws_instance_profile
+        context.machine_profile = collect_machine_profile()
+        self.store.create_run(config.model_dump(mode="json"), run_id, context)
+        tasks = self.env.list_tasks(split_name)
         budget = config.experiment.budgets
         for rollout_index in range(budget.rollout_count):
             task = tasks[rollout_index % len(tasks)]
-            episode = self._collect_episode(config=config, run_id=run_id, task=task, rollout_index=rollout_index)
+            episode = self._collect_episode(
+                config=config,
+                run_id=run_id,
+                task=task,
+                rollout_index=rollout_index,
+                run_context=context,
+            )
             self.store.write_episode(episode)
+        replay_result = build_replay_result(run_id, self.store, "branch_aware", persist=True)
         report = build_run_report(run_id, self.store)
         rows = report_to_metric_rows(run_id, report)
         self.store.write_metrics(rows)
         self.tracker.log_metrics(run_id, rows)
+        self.tracker.log_metrics(run_id, replay_result.metrics)
         self.tracker.log_artifact(run_id, "report", report)
         return run_id
 
@@ -45,6 +69,7 @@ class RolloutEngine:
         run_id: str,
         task,
         rollout_index: int,
+        run_context: RunContext,
     ) -> EpisodeRun:
         budget = config.experiment.budgets
         episode_id = new_id("episode")
@@ -128,6 +153,14 @@ class RolloutEngine:
             metadata={
                 "research_objective": config.research_objective,
                 "seed_space": config.experiment.seeds,
+                "run_group_id": run_context.run_group_id,
+                "condition_name": run_context.condition_name,
+                "run_type": run_context.run_type,
+                "benchmark_name": run_context.benchmark_name,
+                "benchmark_revision": run_context.benchmark_revision,
+                "split_name": run_context.split_name,
+                "seed": run_context.seed,
+                "deployment_profile": run_context.deployment_profile,
             },
         )
 
@@ -156,4 +189,3 @@ class RolloutEngine:
         node_lookup[state.state_hash] = node.node_id
         nodes.append(node)
         return node
-

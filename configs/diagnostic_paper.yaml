@@ -1,0 +1,56 @@
+name: diagnostic_paper
+research_objective: evaluate branch-aware plus hindsight credit assignment on the diagnostic benchmark under matched budgets.
+env:
+  name: diagnostic_branch_lab
+  split: train
+  config: {}
+policy:
+  name: prompted
+  config:
+    exploration_rate: 0.25
+    seed: 7
+trainer:
+  name: outcome_only
+  config: {}
+tracking:
+  backend: local
+  config: {}
+store:
+  sqlite_path: runs/creditlab.sqlite
+  artifact_root: artifacts
+benchmark:
+  name: diagnostic
+  revision: v1
+  manifest_path: benchmarks/diagnostic/v1/tasks.yaml
+  collect_split: train
+  eval_split: eval
+model_backend:
+  name: local_heuristic
+  config: {}
+training_backend:
+  name: local_table
+  config: {}
+deployment:
+  profile: aws_gpu_dev
+  platform: aws_gpu
+  container_image: creditlab-gpu:latest
+  workspace_dir: /workspace/creditlab
+  data_dir: /data/creditlab
+  aws_instance_profile: g6e.4xlarge
+  s3_sync_uri: s3://example-creditlab/runs
+paper_export:
+  output_dir: artifacts/paper
+  manuscript_path: paper/manuscript.md
+sweep:
+  enabled: true
+  seeds: [7, 11, 19]
+experiment:
+  seeds: [7, 11, 19]
+  budgets:
+    rollout_count: 6
+    max_turns: 4
+    max_prompt_tokens: 128
+    max_completion_tokens: 64
+    max_verifier_calls: 32
+    wall_clock_seconds: 60
+

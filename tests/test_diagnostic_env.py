@@ -9,19 +9,19 @@ def test_diagnostic_dead_end_path_can_succeed_after_pivotal_branch():
     next_state, _, terminal = env.step(
         task,
         state,
-        ActionEvent(action_id="a1", action_type="tool", content="inspect_0"),
+        ActionEvent(action_id="a1", action_type="tool", content="inspect"),
     )
     assert terminal is False
     assert next_state.abstract_state["mode"] == "prepared"
     final_state, _, terminal = env.step(
         task,
         next_state,
-        ActionEvent(action_id="a2", action_type="tool", content="commit_fix_0"),
+        ActionEvent(action_id="a2", action_type="tool", content="commit_fix"),
     )
     events = env.verify_transition(
         task,
         next_state,
-        ActionEvent(action_id="a2", action_type="tool", content="commit_fix_0"),
+        ActionEvent(action_id="a2", action_type="tool", content="commit_fix"),
         final_state,
         "The prepared fix resolves the task.",
     )

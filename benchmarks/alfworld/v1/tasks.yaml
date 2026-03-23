@@ -1,0 +1,101 @@
+benchmark_name: alfworld
+revision: v1
+state_abstraction_version: v1
+verifier_version: v1
+tasks:
+  - task_id: alfworld_train_pick_place
+    split: train
+    instruction: Go to the kitchen, pick up the apple, and place it in the bowl.
+    metadata: {domain: embodied_text, target_object: apple, target_container: bowl}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {room: hallway, has_object: false}
+        oracle_action: go_kitchen
+        edges:
+          go_kitchen: {next_node: kitchen, observation: You enter the kitchen., progress_delta: 1, state_delta: improved, branch_label: navigation}
+          go_bedroom: {next_node: wrong_room, observation: The bedroom is a dead end for this task., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {room: bedroom, has_object: false}
+        oracle_action: go_kitchen
+        edges:
+          go_kitchen: {next_node: kitchen, observation: You recover and reach the kitchen., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true}
+      kitchen:
+        phase: acquire
+        mode: kitchen
+        progress: 1
+        abstract_fields: {room: kitchen, has_object: false}
+        oracle_action: take_apple
+        edges:
+          take_apple: {next_node: carrying, observation: You take the apple., progress_delta: 1, state_delta: improved, branch_label: acquire}
+          take_plate: {next_node: failure, observation: Taking the wrong object ends the attempt., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      carrying:
+        phase: place
+        mode: carrying
+        progress: 2
+        abstract_fields: {room: kitchen, has_object: true}
+        oracle_action: put_apple_bowl
+        edges:
+          put_apple_bowl: {next_node: success, observation: You place the apple in the bowl., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+          eat_apple: {next_node: failure, observation: Eating the apple fails the task., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {room: kitchen, has_object: false}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {room: kitchen, has_object: false}, edges: {}}
+  - task_id: alfworld_eval_heat_food
+    split: eval
+    instruction: Go to the kitchen, heat the soup, and place it on the table.
+    metadata: {domain: embodied_text, target_object: soup, target_container: table}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {room: hallway, heated: false}
+        oracle_action: go_kitchen
+        edges:
+          go_kitchen: {next_node: kitchen, observation: You enter the kitchen., progress_delta: 1, state_delta: improved, branch_label: navigation}
+      kitchen:
+        phase: heat
+        mode: kitchen
+        progress: 1
+        abstract_fields: {room: kitchen, heated: false}
+        oracle_action: heat_soup
+        edges:
+          heat_soup: {next_node: heated, observation: The soup is heated., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true}
+          place_cold_soup: {next_node: failure, observation: Placing unheated soup fails the task., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      heated:
+        phase: place
+        mode: heated
+        progress: 2
+        abstract_fields: {room: kitchen, heated: true}
+        oracle_action: put_soup_table
+        edges:
+          put_soup_table: {next_node: success, observation: Heated soup is placed on the table., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {room: kitchen, heated: true}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {room: kitchen, heated: false}, edges: {}}
+  - task_id: alfworld_smoke_pick
+    split: smoke
+    instruction: Go to the kitchen and take the apple.
+    metadata: {domain: embodied_text, target_object: apple}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {room: hallway, has_object: false}
+        oracle_action: go_kitchen
+        edges:
+          go_kitchen: {next_node: kitchen, observation: You enter the kitchen., progress_delta: 1, state_delta: improved, branch_label: navigation}
+      kitchen:
+        phase: acquire
+        mode: kitchen
+        progress: 1
+        abstract_fields: {room: kitchen, has_object: false}
+        oracle_action: take_apple
+        edges:
+          take_apple: {next_node: success, observation: You take the apple., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {room: kitchen, has_object: true}, edges: {}}

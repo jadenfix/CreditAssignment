@@ -1,0 +1,45 @@
+benchmark_name: livecodebench
+revision: v1
+state_abstraction_version: v1
+verifier_version: v1
+tasks:
+  - task_id: lcb_eval_fix_test
+    split: eval
+    instruction: Inspect the failing test, patch the function, run tests, and submit the fix.
+    metadata: {domain: code, failing_tests: ["test_sum_handles_empty"], file_focus: ["math_utils.py"]}
+    states:
+      start:
+        phase: inspect
+        mode: start
+        progress: 0
+        abstract_fields: {repo_state: dirty, failing_test_count: 1}
+        oracle_action: inspect_tests
+        edges:
+          inspect_tests: {next_node: inspected, observation: You identify the failing empty-input test., progress_delta: 1, state_delta: improved, branch_label: inspect, verifier_signals: {test_insight: 1}}
+          patch_blindly: {next_node: failure, observation: Blind patching breaks unrelated logic., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      inspected:
+        phase: patch
+        mode: inspected
+        progress: 1
+        abstract_fields: {repo_state: focused, failing_test_count: 1}
+        oracle_action: apply_patch
+        edges:
+          apply_patch: {next_node: patched, observation: You patch the edge case in the target function., progress_delta: 1, state_delta: improved, branch_label: patch}
+      patched:
+        phase: verify
+        mode: patched
+        progress: 2
+        abstract_fields: {repo_state: patched, failing_test_count: 1}
+        oracle_action: run_tests
+        edges:
+          run_tests: {next_node: tested, observation: Tests now pass locally., progress_delta: 1, state_delta: improved, branch_label: verify, verifier_signals: {tests_passed: 1}}
+      tested:
+        phase: submit
+        mode: tested
+        progress: 3
+        abstract_fields: {repo_state: validated, failing_test_count: 0}
+        oracle_action: submit
+        edges:
+          submit: {next_node: success, observation: The patch is accepted., terminal: true, success: true, progress_delta: 1, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {repo_state: validated, failing_test_count: 0}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {repo_state: broken, failing_test_count: 2}, edges: {}}

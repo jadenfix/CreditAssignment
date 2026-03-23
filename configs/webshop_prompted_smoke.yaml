@@ -1,5 +1,5 @@
 name: webshop_prompted_smoke
-research_objective: determine whether verifier-first rollout collection on the WebShop smoke adapter produces replayable trajectories and matched-budget artifacts suitable for later branch-aware rescoring.
+research_objective: validate the WebShop benchmark adapter, verifier events, and replay/report path.
 env:
   name: webshop
   split: smoke
@@ -7,14 +7,26 @@ env:
 policy:
   name: prompted
   config:
-    exploration_rate: 0.2
+    exploration_rate: 0.1
     seed: 13
+trainer:
+  name: outcome_only
+  config: {}
 tracking:
   backend: local
   config: {}
 store:
   sqlite_path: runs/creditlab.sqlite
   artifact_root: artifacts
+benchmark:
+  name: webshop
+  revision: v1
+  manifest_path: benchmarks/webshop/v1/tasks.yaml
+  collect_split: smoke
+  eval_split: smoke
+deployment:
+  profile: local_smoke
+  platform: local
 experiment:
   seeds: [13]
   budgets:

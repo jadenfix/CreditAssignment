@@ -1,8 +1,8 @@
 name: webshop_outcome_only
-research_objective: prepare the first outcome-only baseline on WebShop smoke trajectories after the logging and replay path is stable.
+research_objective: train the outcome-only baseline on WebShop trajectories with matched-budget reporting.
 env:
   name: webshop
-  split: smoke
+  split: train
   config: {}
 policy:
   name: prompted
@@ -18,6 +18,15 @@ tracking:
 store:
   sqlite_path: runs/creditlab.sqlite
   artifact_root: artifacts
+benchmark:
+  name: webshop
+  revision: v1
+  manifest_path: benchmarks/webshop/v1/tasks.yaml
+  collect_split: train
+  eval_split: eval
+deployment:
+  profile: local_smoke
+  platform: local
 experiment:
   seeds: [13]
   budgets:

@@ -1,15 +1,38 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sqlalchemy import Boolean, Column, Float, Integer, MetaData, String, Table, Text, create_engine, select
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    create_engine,
+    select,
+    text,
+)
 
 from creditlab.core.interfaces import TrajectoryStore
-from creditlab.core.models import EpisodeRun, MetricRow, ReplayPreferenceShift, ReplayResult, Transition, TreeNode, VerifierEvent
+from creditlab.core.models import (
+    EpisodeRun,
+    MetricRow,
+    ReplayResult,
+    RunContext,
+    RunRecord,
+    TrainingTarget,
+    Transition,
+    TreeNode,
+    VerifierEvent,
+)
 
 
 class SqliteTrajectoryStore(TrajectoryStore):
@@ -24,10 +47,26 @@ class SqliteTrajectoryStore(TrajectoryStore):
             "runs",
             self.metadata,
             Column("run_id", String, primary_key=True),
+            Column("run_group_id", String),
+            Column("condition_name", String),
+            Column("run_type", String, nullable=False, default="collect"),
+            Column("seed", Integer),
             Column("experiment_name", String, nullable=False),
             Column("env_name", String, nullable=False),
             Column("policy_name", String, nullable=False),
+            Column("benchmark_name", String),
+            Column("benchmark_revision", String),
+            Column("split_name", String),
+            Column("scorer_name", String),
+            Column("trainer_name", String),
+            Column("model_backend", String),
+            Column("training_backend", String),
+            Column("deployment_profile", String),
+            Column("container_image_tag", String),
+            Column("aws_instance_profile", String),
+            Column("machine_profile_json", Text, nullable=False, default="{}"),
             Column("config_json", Text, nullable=False),
+            Column("metadata_json", Text, nullable=False, default="{}"),
         )
         self.episodes = Table(
             "episodes",
@@ -98,17 +137,78 @@ class SqliteTrajectoryStore(TrajectoryStore):
             Column("artifact_path", String, nullable=False),
             Column("summary_json", Text, nullable=False),
         )
+        self.training_targets = Table(
+            "training_targets",
+            self.metadata,
+            Column("id", Integer, primary_key=True, autoincrement=True),
+            Column("run_id", String, nullable=False),
+            Column("episode_id", String, nullable=False),
+            Column("transition_id", String, nullable=False),
+            Column("state_hash", String, nullable=False),
+            Column("action", String, nullable=False),
+            Column("scorer_name", String, nullable=False),
+            Column("score", Float, nullable=False),
+            Column("metadata_json", Text, nullable=False),
+        )
         self.metadata.create_all(self.engine)
+        self._migrate_schema()
 
-    def create_run(self, config: dict[str, Any], run_id: str) -> None:
+    def _migrate_schema(self) -> None:
+        expected_columns = {
+            "runs": {
+                "run_group_id": "TEXT",
+                "condition_name": "TEXT",
+                "run_type": "TEXT DEFAULT 'collect'",
+                "seed": "INTEGER",
+                "benchmark_name": "TEXT",
+                "benchmark_revision": "TEXT",
+                "split_name": "TEXT",
+                "scorer_name": "TEXT",
+                "trainer_name": "TEXT",
+                "model_backend": "TEXT",
+                "training_backend": "TEXT",
+                "deployment_profile": "TEXT",
+                "container_image_tag": "TEXT",
+                "aws_instance_profile": "TEXT",
+                "machine_profile_json": "TEXT DEFAULT '{}'",
+                "metadata_json": "TEXT DEFAULT '{}'",
+            }
+        }
+        with self.engine.begin() as connection:
+            for table_name, columns in expected_columns.items():
+                existing = {
+                    row[1]
+                    for row in connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+                }
+                for column_name, column_type in columns.items():
+                    if column_name not in existing:
+                        connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+
+    def create_run(self, config: dict[str, Any], run_id: str, context: RunContext) -> None:
         with self.engine.begin() as connection:
             connection.execute(
                 self.runs.insert().values(
                     run_id=run_id,
+                    run_group_id=context.run_group_id,
+                    condition_name=context.condition_name,
+                    run_type=context.run_type,
+                    seed=context.seed,
                     experiment_name=config["name"],
                     env_name=config["env"]["name"],
                     policy_name=config["policy"]["name"],
+                    benchmark_name=context.benchmark_name,
+                    benchmark_revision=context.benchmark_revision,
+                    split_name=context.split_name,
+                    scorer_name=context.scorer_name,
+                    trainer_name=context.trainer_name,
+                    model_backend=context.model_backend,
+                    training_backend=context.training_backend,
+                    deployment_profile=context.deployment_profile,
+                    container_image_tag=context.container_image_tag,
+                    aws_instance_profile=context.aws_instance_profile,
+                    machine_profile_json=context.machine_profile.model_dump_json(),
                     config_json=json.dumps(config, sort_keys=True),
+                    metadata_json=json.dumps(context.metadata, sort_keys=True),
                 )
             )
 
@@ -185,26 +285,30 @@ class SqliteTrajectoryStore(TrajectoryStore):
         with self.engine.begin() as connection:
             episode_rows = list(
                 connection.execute(
-                select(self.episodes).where(self.episodes.c.run_id == run_id).order_by(self.episodes.c.episode_id)
-            ).mappings()
+                    select(self.episodes).where(self.episodes.c.run_id == run_id).order_by(self.episodes.c.episode_id)
+                ).mappings()
             )
             for episode_row in episode_rows:
                 node_rows = list(
                     connection.execute(
-                    select(self.nodes).where(self.nodes.c.episode_id == episode_row["episode_id"]).order_by(self.nodes.c.turn_index)
-                ).mappings()
+                        select(self.nodes).where(self.nodes.c.episode_id == episode_row["episode_id"]).order_by(self.nodes.c.turn_index)
+                    ).mappings()
                 )
                 edge_rows = list(
                     connection.execute(
-                    select(self.edges).where(self.edges.c.episode_id == episode_row["episode_id"]).order_by(self.edges.c.turn_index)
-                ).mappings()
+                        select(self.edges).where(self.edges.c.episode_id == episode_row["episode_id"]).order_by(self.edges.c.turn_index)
+                    ).mappings()
                 )
                 transition_ids = [row["transition_id"] for row in edge_rows]
-                verifier_rows = list(
-                    connection.execute(
-                        select(self.verifier_events).where(self.verifier_events.c.transition_id.in_(transition_ids))
-                    ).mappings()
-                ) if transition_ids else []
+                verifier_rows = (
+                    list(
+                        connection.execute(
+                            select(self.verifier_events).where(self.verifier_events.c.transition_id.in_(transition_ids))
+                        ).mappings()
+                    )
+                    if transition_ids
+                    else []
+                )
                 verifier_by_transition: dict[str, list[VerifierEvent]] = {}
                 for row in verifier_rows:
                     verifier_by_transition.setdefault(row["transition_id"], []).append(
@@ -254,8 +358,8 @@ class SqliteTrajectoryStore(TrajectoryStore):
                         transitions=transitions,
                         success=episode_row["success"],
                         outcome=episode_row["outcome"],
-                        started_at=episode_row["started_at"],
-                        completed_at=episode_row["completed_at"],
+                        started_at=datetime.fromisoformat(episode_row["started_at"]),
+                        completed_at=datetime.fromisoformat(episode_row["completed_at"]),
                         metadata=json.loads(episode_row["metadata_json"]),
                     )
                 )
@@ -265,6 +369,21 @@ class SqliteTrajectoryStore(TrajectoryStore):
         with self.engine.begin() as connection:
             rows = connection.execute(select(self.runs.c.run_id).order_by(self.runs.c.run_id)).all()
         return [row[0] for row in rows]
+
+    def list_runs(self, run_group_id: str | None = None, run_type: str | None = None) -> list[RunRecord]:
+        query = select(self.runs).order_by(self.runs.c.run_id)
+        if run_group_id is not None:
+            query = query.where(self.runs.c.run_group_id == run_group_id)
+        if run_type is not None:
+            query = query.where(self.runs.c.run_type == run_type)
+        with self.engine.begin() as connection:
+            rows = list(connection.execute(query).mappings())
+        return [self._run_record_from_row(row) for row in rows]
+
+    def load_run(self, run_id: str) -> RunRecord | None:
+        with self.engine.begin() as connection:
+            row = connection.execute(select(self.runs).where(self.runs.c.run_id == run_id)).mappings().first()
+        return self._run_record_from_row(row) if row else None
 
     def write_metrics(self, rows: Sequence[MetricRow]) -> None:
         if not rows:
@@ -286,19 +405,21 @@ class SqliteTrajectoryStore(TrajectoryStore):
 
     def load_metrics(self, run_id: str) -> list[MetricRow]:
         with self.engine.begin() as connection:
-            rows = connection.execute(
-                select(self.metrics).where(self.metrics.c.run_id == run_id).order_by(self.metrics.c.id)
-            ).mappings()
-            return [
-                MetricRow(
-                    run_id=row["run_id"],
-                    scope=row["scope"],
-                    name=row["name"],
-                    value=row["value"],
-                    metadata=json.loads(row["metadata_json"]),
-                )
-                for row in rows
-            ]
+            rows = list(
+                connection.execute(
+                    select(self.metrics).where(self.metrics.c.run_id == run_id).order_by(self.metrics.c.id)
+                ).mappings()
+            )
+        return [
+            MetricRow(
+                run_id=row["run_id"],
+                scope=row["scope"],
+                name=row["name"],
+                value=row["value"],
+                metadata=json.loads(row["metadata_json"]),
+            )
+            for row in rows
+        ]
 
     def write_replay(self, result: ReplayResult) -> Path:
         replay_dir = self.artifact_root / "runs" / result.run_id / "replays"
@@ -330,6 +451,82 @@ class SqliteTrajectoryStore(TrajectoryStore):
             )
         return path
 
+    def write_training_targets(self, targets: Sequence[TrainingTarget]) -> Path | None:
+        if not targets:
+            return None
+        run_id = targets[0].run_id
+        scorer_name = targets[0].scorer_name
+        target_dir = self.artifact_root / "runs" / run_id / "targets"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / f"{scorer_name}.parquet"
+        pq.write_table(
+            pa.Table.from_pylist([target.model_dump(mode="json") for target in targets]),
+            path,
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                self.training_targets.insert(),
+                [
+                    {
+                        "run_id": target.run_id,
+                        "episode_id": target.episode_id,
+                        "transition_id": target.transition_id,
+                        "state_hash": target.state_hash,
+                        "action": target.action,
+                        "scorer_name": target.scorer_name,
+                        "score": target.score,
+                        "metadata_json": json.dumps(target.metadata, sort_keys=True),
+                    }
+                    for target in targets
+                ],
+            )
+        return path
+
+    def load_training_targets(self, run_id: str, scorer_name: str | None = None) -> list[TrainingTarget]:
+        query = select(self.training_targets).where(self.training_targets.c.run_id == run_id)
+        if scorer_name is not None:
+            query = query.where(self.training_targets.c.scorer_name == scorer_name)
+        with self.engine.begin() as connection:
+            rows = list(connection.execute(query).mappings())
+        return [
+            TrainingTarget(
+                run_id=row["run_id"],
+                episode_id=row["episode_id"],
+                transition_id=row["transition_id"],
+                state_hash=row["state_hash"],
+                action=row["action"],
+                scorer_name=row["scorer_name"],
+                score=row["score"],
+                metadata=json.loads(row["metadata_json"]),
+            )
+            for row in rows
+        ]
+
+    def _run_record_from_row(self, row: Any) -> RunRecord:
+        return RunRecord(
+            run_id=row["run_id"],
+            run_group_id=row.get("run_group_id"),
+            condition_name=row.get("condition_name"),
+            run_type=row.get("run_type") or "collect",
+            seed=row.get("seed"),
+            experiment_name=row["experiment_name"],
+            env_name=row["env_name"],
+            policy_name=row["policy_name"],
+            benchmark_name=row.get("benchmark_name"),
+            benchmark_revision=row.get("benchmark_revision"),
+            split_name=row.get("split_name"),
+            scorer_name=row.get("scorer_name"),
+            trainer_name=row.get("trainer_name"),
+            model_backend=row.get("model_backend"),
+            training_backend=row.get("training_backend"),
+            deployment_profile=row.get("deployment_profile"),
+            container_image_tag=row.get("container_image_tag"),
+            aws_instance_profile=row.get("aws_instance_profile"),
+            machine_profile=json.loads(row.get("machine_profile_json") or "{}"),
+            config=json.loads(row["config_json"]),
+            metadata=json.loads(row.get("metadata_json") or "{}"),
+        )
+
     def _write_episode_artifact(self, path: Path, episode: EpisodeRun) -> None:
         node_index = {node.node_id: node for node in episode.nodes}
         rows = []
@@ -359,6 +556,6 @@ class SqliteTrajectoryStore(TrajectoryStore):
                     ),
                 }
             )
-        rows = rows or [{"episode_id": episode.episode_id, "transition_id": ""}]
-        table = pa.Table.from_pylist(rows)
-        pq.write_table(table, path)
+        if not rows:
+            rows = [{"episode_id": episode.episode_id, "transition_id": ""}]
+        pq.write_table(pa.Table.from_pylist(rows), path)

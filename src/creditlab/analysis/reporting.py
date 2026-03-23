@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from statistics import mean
 from typing import Any
 
 import polars as pl
 
-from creditlab.core.models import MetricRow, ReplayPreferenceShift, ReplayResult
+from creditlab.core.models import ConditionSummary, MetricRow, ReplayPreferenceShift, ReplayResult
 from creditlab.core.utils import action_label
 from creditlab.verifiers.scorers import aggregate_branch_preferences
 
 
 def build_run_report(run_id: str, store) -> dict[str, Any]:
+    run_record = store.load_run(run_id)
     episodes = store.load_episodes(run_id)
     transition_rows: list[dict[str, Any]] = []
     state_payloads: dict[str, set[str]] = defaultdict(set)
@@ -31,10 +33,7 @@ def build_run_report(run_id: str, store) -> dict[str, Any]:
                     "turn_index": transition.turn_index,
                     "dead_end": any(event.signal_name == "dead_end" for event in transition.verifier_events),
                     "success": episode.success,
-                    "duration_seconds": max(
-                        (episode.completed_at - episode.started_at).total_seconds(),
-                        0.0,
-                    ),
+                    "duration_seconds": max((episode.completed_at - episode.started_at).total_seconds(), 0.0),
                 }
             )
     frame = pl.DataFrame(transition_rows) if transition_rows else pl.DataFrame(schema={"episode_id": pl.String})
@@ -44,10 +43,7 @@ def build_run_report(run_id: str, store) -> dict[str, Any]:
     total_completion_tokens = int(frame["completion_tokens"].sum()) if "completion_tokens" in frame.columns else 0
     total_verifier_calls = int(frame["verifier_calls"].sum()) if "verifier_calls" in frame.columns else 0
     avg_turns = (len(transition_rows) / rollout_count) if rollout_count else 0.0
-    wall_clock = sum(
-        max((episode.completed_at - episode.started_at).total_seconds(), 0.0)
-        for episode in episodes
-    )
+    wall_clock = sum(max((episode.completed_at - episode.started_at).total_seconds(), 0.0) for episode in episodes)
     summary = {
         "rollout_count": rollout_count,
         "avg_turns": avg_turns,
@@ -62,13 +58,9 @@ def build_run_report(run_id: str, store) -> dict[str, Any]:
             else float(total_prompt_tokens + total_completion_tokens)
         ),
     }
-    replay_branch = build_replay_result(run_id, store, "branch_aware")
+    replay_branch = build_replay_result(run_id, store, "branch_aware", persist=False)
     repeated_dead_ends = Counter(row["action"] for row in transition_rows if row["dead_end"]).most_common(5)
-    disagreement = sorted(
-        replay_branch.preference_shifts,
-        key=lambda shift: abs(shift.margin),
-        reverse=True,
-    )[:5]
+    disagreement = sorted(replay_branch.preference_shifts, key=lambda shift: abs(shift.margin), reverse=True)[:5]
     state_collapses = [
         {"state_hash": state_hash, "distinct_payloads": len(payloads)}
         for state_hash, payloads in state_payloads.items()
@@ -76,23 +68,18 @@ def build_run_report(run_id: str, store) -> dict[str, Any]:
     ]
     return {
         "run_id": run_id,
+        "run_record": run_record.model_dump(mode="json") if run_record else {},
         "summary": summary,
         "failure_analysis": {
-            "top_repeated_dead_end_branches": [
-                {"action": action, "count": count}
-                for action, count in repeated_dead_ends
-            ],
-            "highest_disagreement_branch_points": [
-                shift.model_dump(mode="json")
-                for shift in disagreement
-            ],
+            "top_repeated_dead_end_branches": [{"action": action, "count": count} for action, count in repeated_dead_ends],
+            "highest_disagreement_branch_points": [shift.model_dump(mode="json") for shift in disagreement],
             "rescoring_changed_preferred_branch_examples": replay_branch.changed_examples[:5],
             "state_abstraction_collapses": state_collapses[:5],
         },
     }
 
 
-def build_replay_result(run_id: str, store, scorer_name: str) -> ReplayResult:
+def build_replay_result(run_id: str, store, scorer_name: str, persist: bool = True) -> ReplayResult:
     episodes = store.load_episodes(run_id)
     outcome_preferences = aggregate_branch_preferences(episodes, "outcome_only")
     replay_preferences = aggregate_branch_preferences(episodes, scorer_name)
@@ -105,14 +92,8 @@ def build_replay_result(run_id: str, store, scorer_name: str) -> ReplayResult:
         if not replay_entry or len(outcome_entry["action_scores"]) < 2:
             continue
         total_states += 1
-        outcome_action, outcome_score = max(
-            outcome_entry["action_scores"].items(),
-            key=lambda item: item[1],
-        )
-        replay_action, replay_score = max(
-            replay_entry["action_scores"].items(),
-            key=lambda item: item[1],
-        )
+        outcome_action, outcome_score = max(outcome_entry["action_scores"].items(), key=lambda item: item[1])
+        replay_action, replay_score = max(replay_entry["action_scores"].items(), key=lambda item: item[1])
         changed = outcome_action != replay_action
         if changed:
             changed_count += 1
@@ -159,14 +140,70 @@ def build_replay_result(run_id: str, store, scorer_name: str) -> ReplayResult:
         changed_examples=changed_examples,
         summary=summary,
     )
-    store.write_replay(result)
-    store.write_metrics(metrics)
+    if persist:
+        store.write_replay(result)
+        store.write_metrics(metrics)
     return result
 
 
 def report_to_metric_rows(run_id: str, report: dict[str, Any]) -> list[MetricRow]:
     summary = report["summary"]
-    return [
-        MetricRow(run_id=run_id, scope="report", name=name, value=float(value))
-        for name, value in summary.items()
+    return [MetricRow(run_id=run_id, scope="report", name=name, value=float(value)) for name, value in summary.items()]
+
+
+def aggregate_run_group(run_group_id: str, store) -> dict[str, Any]:
+    runs = [run for run in store.list_runs(run_group_id=run_group_id, run_type="evaluation")]
+    grouped: dict[tuple[str, str], list[float]] = defaultdict(list)
+    metadata: dict[tuple[str, str], dict[str, Any]] = {}
+    run_metrics: list[dict[str, Any]] = []
+    for run in runs:
+        metrics = store.load_metrics(run.run_id)
+        metric_map = {f"{row.scope}/{row.name}": row.value for row in metrics}
+        summary_metric_map = {row.name: row.value for row in metrics if row.scope == "report"}
+        run_metrics.append(
+            {
+                "run_id": run.run_id,
+                "condition_name": run.condition_name,
+                "seed": run.seed,
+                "benchmark_name": run.benchmark_name,
+                **summary_metric_map,
+            }
+        )
+        for row in metrics:
+            key = (run.condition_name or "unknown", row.name)
+            grouped[key].append(row.value)
+            metadata[key] = {
+                "benchmark_name": run.benchmark_name,
+                "run_group_id": run_group_id,
+                "scope": row.scope,
+            }
+    summaries = [
+        ConditionSummary(
+            run_group_id=run_group_id,
+            condition_name=condition,
+            benchmark_name=metadata[(condition, metric)]["benchmark_name"] or "unknown",
+            metric_name=metric,
+            mean=mean(values),
+            min=min(values),
+            max=max(values),
+            count=len(values),
+            metadata=metadata[(condition, metric)],
+        ).model_dump(mode="json")
+        for (condition, metric), values in sorted(grouped.items())
     ]
+    budget_parity = _budget_parity_check(run_metrics)
+    return {
+        "run_group_id": run_group_id,
+        "condition_summaries": summaries,
+        "run_metrics": run_metrics,
+        "budget_parity": budget_parity,
+    }
+
+
+def _budget_parity_check(run_metrics: list[dict[str, Any]]) -> dict[str, Any]:
+    tracked = ["rollout_count", "avg_turns", "prompt_tokens", "completion_tokens", "verifier_calls", "wall_clock_time"]
+    parity = {}
+    for name in tracked:
+        values = sorted({round(float(row.get(name, 0.0)), 4) for row in run_metrics if name in row})
+        parity[name] = {"unique_values": values, "matched": len(values) <= 1}
+    return parity

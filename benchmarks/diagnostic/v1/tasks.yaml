@@ -1,0 +1,329 @@
+benchmark_name: diagnostic
+revision: v1
+state_abstraction_version: v1
+verifier_version: v1
+tasks:
+  - task_id: diag_dead_end_train_01
+    split: train
+    instruction: Resolve a dead-end branch task by inspecting before committing.
+    metadata:
+      family: dead_end
+      pivotal_branch: inspect
+      misleading_branch: rush
+    states:
+      start:
+        phase: branch
+        mode: start
+        progress: 0
+        abstract_fields: {family: dead_end}
+        oracle_action: inspect
+        edges:
+          inspect:
+            next_node: prepared
+            observation: You inspected the state and identified the viable path.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {inspection_quality: 1}
+          rush:
+            next_node: dead_end
+            observation: You rushed ahead into a dead end.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: dead_end
+            dead_end: true
+          wait:
+            next_node: start
+            observation: Waiting changes nothing.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+      prepared:
+        phase: commit
+        mode: prepared
+        progress: 1
+        abstract_fields: {family: dead_end}
+        oracle_action: commit_fix
+        edges:
+          commit_fix:
+            next_node: success
+            observation: The prepared fix resolves the task.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+          wander:
+            next_node: dead_end
+            observation: Wandering off loses the prepared state.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: dead_end
+            dead_end: true
+      dead_end:
+        phase: trap
+        mode: dead_end
+        progress: -1
+        abstract_fields: {family: dead_end}
+        oracle_action: backtrack
+        edges:
+          backtrack:
+            next_node: prepared
+            observation: You backtracked and recovered the useful path.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: recovery
+            recovery: true
+          double_down:
+            next_node: failure
+            observation: Doubling down locks in the failure.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+            dead_end: true
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: dead_end}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: dead_end}, edges: {}}
+  - task_id: diag_enabling_train_01
+    split: train
+    instruction: Solve the task by taking the enabling step before answering.
+    metadata:
+      family: enabling
+      pivotal_branch: collect_clue
+      misleading_branch: answer_now
+    states:
+      start:
+        phase: setup
+        mode: start
+        progress: 0
+        abstract_fields: {family: enabling}
+        oracle_action: collect_clue
+        edges:
+          collect_clue:
+            next_node: ready
+            observation: You gathered a clue that unlocks the solution path.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: enabling
+            enabling: true
+            verifier_signals: {knowledge_gain: 1}
+          answer_now:
+            next_node: failure
+            observation: Answering early fails the task.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: premature
+            dead_end: true
+          browse:
+            next_node: start
+            observation: Browsing is locally plausible but not useful.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+      ready:
+        phase: solve
+        mode: ready
+        progress: 1
+        abstract_fields: {family: enabling}
+        oracle_action: use_clue
+        edges:
+          use_clue:
+            next_node: success
+            observation: The clue leads to the correct answer.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+          ignore_clue:
+            next_node: failure
+            observation: Ignoring the clue wastes the setup.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: enabling}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {family: enabling}, edges: {}}
+  - task_id: diag_recovery_train_01
+    split: train
+    instruction: Recover from an early mistake and still finish cleanly.
+    metadata:
+      family: recovery
+      pivotal_branch: recover
+      misleading_branch: double_down
+    states:
+      start:
+        phase: attempt
+        mode: start
+        progress: 0
+        abstract_fields: {family: recovery}
+        oracle_action: wrong_tool
+        edges:
+          wrong_tool:
+            next_node: mistake
+            observation: The wrong tool introduces an error.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: mistake
+            dead_end: true
+          safe_probe:
+            next_node: recovered
+            observation: A safe probe leaves a viable path open.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: safe
+      mistake:
+        phase: repair
+        mode: mistake
+        progress: -1
+        abstract_fields: {family: recovery}
+        oracle_action: recover
+        edges:
+          recover:
+            next_node: recovered
+            observation: Recovery restores a viable path.
+            progress_delta: 2
+            state_delta: improved
+            branch_label: recovery
+            recovery: true
+            verifier_signals: {repair_quality: 1}
+          double_down:
+            next_node: failure
+            observation: Doubling down makes the task unrecoverable.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+            dead_end: true
+      recovered:
+        phase: finish
+        mode: recovered
+        progress: 1
+        abstract_fields: {family: recovery}
+        oracle_action: finish_cleanly
+        edges:
+          finish_cleanly:
+            next_node: success
+            observation: You finish the task cleanly after recovery.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+          panic:
+            next_node: failure
+            observation: Panic destroys the recovered path.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: recovery}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: recovery}, edges: {}}
+  - task_id: diag_dead_end_eval_01
+    split: eval
+    instruction: Identify the viable branch instead of committing too early.
+    metadata: {family: dead_end, pivotal_branch: inspect, misleading_branch: rush}
+    states:
+      start:
+        phase: branch
+        mode: start
+        progress: 0
+        abstract_fields: {family: dead_end}
+        oracle_action: inspect
+        edges:
+          inspect: {next_node: prepared, observation: Inspection reveals the right path., progress_delta: 1, state_delta: improved, branch_label: pivotal}
+          rush: {next_node: dead_end, observation: Rushing goes to a dead end., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      prepared:
+        phase: commit
+        mode: prepared
+        progress: 1
+        abstract_fields: {family: dead_end}
+        oracle_action: commit_fix
+        edges:
+          commit_fix: {next_node: success, observation: Commit succeeds., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+          wander: {next_node: dead_end, observation: Wandering off loses progress., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      dead_end:
+        phase: trap
+        mode: dead_end
+        progress: -1
+        abstract_fields: {family: dead_end}
+        oracle_action: backtrack
+        edges:
+          backtrack: {next_node: prepared, observation: Backtracking recovers the good path., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true}
+          double_down: {next_node: failure, observation: Double down fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: dead_end}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: dead_end}, edges: {}}
+  - task_id: diag_enabling_eval_01
+    split: eval
+    instruction: Take the enabling step before finalizing the answer.
+    metadata: {family: enabling, pivotal_branch: collect_clue, misleading_branch: answer_now}
+    states:
+      start:
+        phase: setup
+        mode: start
+        progress: 0
+        abstract_fields: {family: enabling}
+        oracle_action: collect_clue
+        edges:
+          collect_clue: {next_node: ready, observation: The clue unlocks the path., progress_delta: 0, state_delta: neutral, branch_label: enabling, enabling: true}
+          answer_now: {next_node: failure, observation: Early answer fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: premature, dead_end: true}
+      ready:
+        phase: solve
+        mode: ready
+        progress: 1
+        abstract_fields: {family: enabling}
+        oracle_action: use_clue
+        edges:
+          use_clue: {next_node: success, observation: The clue yields the answer., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+          ignore_clue: {next_node: failure, observation: Ignoring the clue fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: enabling}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {family: enabling}, edges: {}}
+  - task_id: diag_smoke_01
+    split: smoke
+    instruction: Resolve a short dead-end smoke task.
+    metadata: {family: dead_end, pivotal_branch: inspect, misleading_branch: rush}
+    states:
+      start:
+        phase: branch
+        mode: start
+        progress: 0
+        abstract_fields: {family: dead_end}
+        oracle_action: inspect
+        edges:
+          inspect: {next_node: prepared, observation: Inspection helps., progress_delta: 1, state_delta: improved, branch_label: pivotal}
+          rush: {next_node: failure, observation: Rushing fails the task., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      prepared:
+        phase: commit
+        mode: prepared
+        progress: 1
+        abstract_fields: {family: dead_end}
+        oracle_action: commit_fix
+        edges:
+          commit_fix: {next_node: success, observation: The fix succeeds., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: dead_end}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: dead_end}, edges: {}}
+  - task_id: diag_smoke_02
+    split: smoke
+    instruction: Solve a short enabling smoke task.
+    metadata: {family: enabling, pivotal_branch: collect_clue, misleading_branch: answer_now}
+    states:
+      start:
+        phase: setup
+        mode: start
+        progress: 0
+        abstract_fields: {family: enabling}
+        oracle_action: collect_clue
+        edges:
+          collect_clue: {next_node: ready, observation: The clue matters later., progress_delta: 0, state_delta: neutral, branch_label: enabling, enabling: true}
+          answer_now: {next_node: failure, observation: Early answer fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: premature, dead_end: true}
+      ready:
+        phase: solve
+        mode: ready
+        progress: 1
+        abstract_fields: {family: enabling}
+        oracle_action: use_clue
+        edges:
+          use_clue: {next_node: success, observation: The clue solves it., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: enabling}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {family: enabling}, edges: {}}

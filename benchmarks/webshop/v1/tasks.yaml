@@ -1,0 +1,224 @@
+benchmark_name: webshop
+revision: v1
+state_abstraction_version: v1
+verifier_version: v1
+tasks:
+  - task_id: webshop_train_red_mug
+    split: train
+    instruction: Find the red ceramic mug under $15 and complete checkout.
+    metadata: {domain: shopping, target_product: red_mug, constraints: {color: red, material: ceramic, max_price: 15}}
+    initial_state: search
+    states:
+      search:
+        phase: browse
+        mode: search
+        progress: 0
+        abstract_fields: {page: search, target_kind: mug}
+        oracle_action: search:red mug
+        edges:
+          "search:red mug": {next_node: results, observation: Results show red mugs and nearby alternatives., progress_delta: 1, state_delta: improved, branch_label: search_hit, verifier_signals: {query_quality: 1}}
+          "search:red bottle": {next_node: noisy_results, observation: Results skew toward bottles., progress_delta: 0, state_delta: neutral, branch_label: search_noise}
+      noisy_results:
+        phase: browse
+        mode: results
+        progress: 0
+        abstract_fields: {page: results, target_kind: mug}
+        oracle_action: open:red_mug
+        edges:
+          "open:red_bottle": {next_node: wrong_product, observation: Opened a red bottle that mismatches the material., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          "open:red_mug": {next_node: product, observation: Opened the red ceramic mug., progress_delta: 1, state_delta: improved, branch_label: product_match}
+      results:
+        phase: browse
+        mode: results
+        progress: 1
+        abstract_fields: {page: results, target_kind: mug}
+        oracle_action: open:red_mug
+        edges:
+          "open:red_mug": {next_node: product, observation: Opened the red ceramic mug., progress_delta: 1, state_delta: improved, branch_label: product_match}
+          "open:red_bottle": {next_node: wrong_product, observation: Opened the wrong product type., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      product:
+        phase: decide
+        mode: product
+        progress: 2
+        abstract_fields: {page: product, target_kind: mug}
+        oracle_action: add_to_cart
+        edges:
+          add_to_cart: {next_node: cart, observation: Added the correct item to cart., progress_delta: 1, state_delta: improved, branch_label: cart}
+          back: {next_node: results, observation: Returned to results without buying., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_product:
+        phase: decide
+        mode: wrong_product
+        progress: 0
+        abstract_fields: {page: product, target_kind: wrong}
+        oracle_action: back
+        edges:
+          back: {next_node: results, observation: Went back to the results page., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true}
+          add_to_cart: {next_node: failure, observation: Buying the wrong product fails the task., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      cart:
+        phase: purchase
+        mode: cart
+        progress: 3
+        abstract_fields: {page: cart, target_kind: mug}
+        oracle_action: checkout
+        edges:
+          checkout: {next_node: success, observation: Checkout succeeds with the correct item., terminal: true, success: true, progress_delta: 1, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {page: done, target_kind: mug}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {page: done, target_kind: wrong}, edges: {}}
+  - task_id: webshop_train_blue_bottle
+    split: train
+    instruction: Buy the blue metal bottle.
+    metadata: {domain: shopping, target_product: blue_bottle, constraints: {color: blue, material: metal, max_price: 30}}
+    initial_state: search
+    states:
+      search:
+        phase: browse
+        mode: search
+        progress: 0
+        abstract_fields: {page: search, target_kind: bottle}
+        oracle_action: search:blue bottle
+        edges:
+          "search:blue bottle": {next_node: results, observation: Results show the blue bottle., progress_delta: 1, state_delta: improved, branch_label: search_hit}
+          "search:travel mug": {next_node: noisy_results, observation: Results skew toward mugs., progress_delta: 0, state_delta: neutral, branch_label: search_noise}
+      noisy_results:
+        phase: browse
+        mode: results
+        progress: 0
+        abstract_fields: {page: results, target_kind: bottle}
+        oracle_action: open:blue_bottle
+        edges:
+          "open:green_mug": {next_node: wrong_product, observation: Opened the wrong mug., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          "open:blue_bottle": {next_node: product, observation: Opened the correct blue bottle., progress_delta: 1, state_delta: improved, branch_label: product_match}
+      results:
+        phase: browse
+        mode: results
+        progress: 1
+        abstract_fields: {page: results, target_kind: bottle}
+        oracle_action: open:blue_bottle
+        edges:
+          "open:blue_bottle": {next_node: product, observation: Opened the correct bottle., progress_delta: 1, state_delta: improved, branch_label: product_match}
+          "open:green_mug": {next_node: wrong_product, observation: Wrong product., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      product:
+        phase: decide
+        mode: product
+        progress: 2
+        abstract_fields: {page: product, target_kind: bottle}
+        oracle_action: add_to_cart
+        edges:
+          add_to_cart: {next_node: cart, observation: Added the right bottle to cart., progress_delta: 1, state_delta: improved, branch_label: cart}
+      wrong_product:
+        phase: decide
+        mode: wrong_product
+        progress: 0
+        abstract_fields: {page: product, target_kind: wrong}
+        oracle_action: back
+        edges:
+          back: {next_node: results, observation: Returned to results., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true}
+          add_to_cart: {next_node: failure, observation: Wrong purchase fails the task., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      cart:
+        phase: purchase
+        mode: cart
+        progress: 3
+        abstract_fields: {page: cart, target_kind: bottle}
+        oracle_action: checkout
+        edges:
+          checkout: {next_node: success, observation: Checkout succeeds., terminal: true, success: true, progress_delta: 1, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {page: done, target_kind: bottle}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {page: done, target_kind: wrong}, edges: {}}
+  - task_id: webshop_eval_travel_mug
+    split: eval
+    instruction: Buy the green travel mug under $20.
+    metadata: {domain: shopping, target_product: green_mug, constraints: {color: green, material: steel, max_price: 20}}
+    initial_state: search
+    states:
+      search:
+        phase: browse
+        mode: search
+        progress: 0
+        abstract_fields: {page: search, target_kind: mug}
+        oracle_action: search:travel mug
+        edges:
+          "search:travel mug": {next_node: results, observation: Results surface the travel mug., progress_delta: 1, state_delta: improved, branch_label: search_hit}
+          "search:red mug": {next_node: noisy_results, observation: Results skew toward non-travel mugs., progress_delta: 0, state_delta: neutral, branch_label: search_noise}
+      noisy_results:
+        phase: browse
+        mode: results
+        progress: 0
+        abstract_fields: {page: results, target_kind: mug}
+        oracle_action: open:green_mug
+        edges:
+          "open:red_mug": {next_node: wrong_product, observation: Opened the wrong mug., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          "open:green_mug": {next_node: product, observation: Opened the travel mug., progress_delta: 1, state_delta: improved, branch_label: product_match}
+      results:
+        phase: browse
+        mode: results
+        progress: 1
+        abstract_fields: {page: results, target_kind: mug}
+        oracle_action: open:green_mug
+        edges:
+          "open:green_mug": {next_node: product, observation: Opened the correct travel mug., progress_delta: 1, state_delta: improved, branch_label: product_match}
+          "open:red_mug": {next_node: wrong_product, observation: Opened the wrong mug., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      product:
+        phase: decide
+        mode: product
+        progress: 2
+        abstract_fields: {page: product, target_kind: mug}
+        oracle_action: add_to_cart
+        edges:
+          add_to_cart: {next_node: cart, observation: Added the travel mug to cart., progress_delta: 1, state_delta: improved, branch_label: cart}
+      wrong_product:
+        phase: decide
+        mode: wrong_product
+        progress: 0
+        abstract_fields: {page: product, target_kind: wrong}
+        oracle_action: back
+        edges:
+          back: {next_node: results, observation: Returned to results to recover., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true}
+      cart:
+        phase: purchase
+        mode: cart
+        progress: 3
+        abstract_fields: {page: cart, target_kind: mug}
+        oracle_action: checkout
+        edges:
+          checkout: {next_node: success, observation: Checkout succeeds., terminal: true, success: true, progress_delta: 1, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {page: done, target_kind: mug}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {page: done, target_kind: wrong}, edges: {}}
+  - task_id: webshop_smoke_red_mug
+    split: smoke
+    instruction: Buy the red ceramic mug.
+    metadata: {domain: shopping, target_product: red_mug}
+    initial_state: search
+    states:
+      search:
+        phase: browse
+        mode: search
+        progress: 0
+        abstract_fields: {page: search, target_kind: mug}
+        oracle_action: search:red mug
+        edges:
+          "search:red mug": {next_node: results, observation: Results show the mug., progress_delta: 1, state_delta: improved, branch_label: search_hit}
+      results:
+        phase: browse
+        mode: results
+        progress: 1
+        abstract_fields: {page: results, target_kind: mug}
+        oracle_action: open:red_mug
+        edges:
+          "open:red_mug": {next_node: product, observation: Opened the correct mug., progress_delta: 1, state_delta: improved, branch_label: product_match}
+      product:
+        phase: decide
+        mode: product
+        progress: 2
+        abstract_fields: {page: product, target_kind: mug}
+        oracle_action: add_to_cart
+        edges:
+          add_to_cart: {next_node: cart, observation: Added to cart., progress_delta: 1, state_delta: improved, branch_label: cart}
+      cart:
+        phase: purchase
+        mode: cart
+        progress: 3
+        abstract_fields: {page: cart, target_kind: mug}
+        oracle_action: checkout
+        edges:
+          checkout: {next_node: success, observation: Checkout succeeds., terminal: true, success: true, progress_delta: 1, state_delta: improved, branch_label: success}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {page: done, target_kind: mug}, edges: {}}

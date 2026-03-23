@@ -34,12 +34,12 @@ class TablePolicyBackend(PolicyBackend):
     ) -> ActionEvent:
         available = list(state.payload.get("available_actions", []))
         state_scores = self.model.get(state.state_hash, {})
-        choice = self.fallback or (available[0] if available else "noop")
-        if state_scores:
-            choice = max(
-                available or list(state_scores),
-                key=lambda action: state_scores.get(action, float("-inf")),
-            )
+        if not available:
+            choice = "noop"
+        elif state_scores:
+            choice = max(available, key=lambda action: state_scores.get(action, float("-inf")))
+        else:
+            choice = self.fallback or state.payload.get("oracle_action") or available[0]
         return ActionEvent(
             action_id=new_id("action"),
             action_type="tool",
@@ -48,4 +48,3 @@ class TablePolicyBackend(PolicyBackend):
             completion_tokens=min(8, budget.max_completion_tokens),
             metadata={"policy": self.policy_name, "state_hash": state.state_hash},
         )
-

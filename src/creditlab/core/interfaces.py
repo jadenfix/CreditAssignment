@@ -10,8 +10,11 @@ from creditlab.core.models import (
     EpisodeRun,
     MetricRow,
     ReplayResult,
+    RunContext,
+    RunRecord,
     StateSnapshot,
     TaskSpec,
+    TrainingTarget,
     VerifierEvent,
 )
 
@@ -75,7 +78,7 @@ class TrainerBackend(ABC):
 
 class TrajectoryStore(ABC):
     @abstractmethod
-    def create_run(self, config: dict[str, Any], run_id: str) -> None:
+    def create_run(self, config: dict[str, Any], run_id: str, context: RunContext) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -91,6 +94,14 @@ class TrajectoryStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def list_runs(self, run_group_id: str | None = None, run_type: str | None = None) -> list[RunRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_run(self, run_id: str) -> RunRecord | None:
+        raise NotImplementedError
+
+    @abstractmethod
     def write_metrics(self, rows: Sequence[MetricRow]) -> None:
         raise NotImplementedError
 
@@ -100,6 +111,14 @@ class TrajectoryStore(ABC):
 
     @abstractmethod
     def write_replay(self, result: ReplayResult) -> Path:
+        raise NotImplementedError
+
+    @abstractmethod
+    def write_training_targets(self, targets: Sequence[TrainingTarget]) -> Path | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_training_targets(self, run_id: str, scorer_name: str | None = None) -> list[TrainingTarget]:
         raise NotImplementedError
 
 
@@ -113,4 +132,3 @@ class TrackerBackend(ABC):
     @abstractmethod
     def log_artifact(self, run_id: str, name: str, payload: dict[str, Any]) -> Path:
         raise NotImplementedError
-

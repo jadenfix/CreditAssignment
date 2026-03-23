@@ -122,6 +122,37 @@ class Transition(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class MachineProfile(BaseModel):
+    hostname: str = ""
+    platform: str = ""
+    python_version: str = ""
+    docker_available: bool = False
+    docker_runtime: str | None = None
+    gpu_available: bool = False
+    gpu_name: str | None = None
+    gpu_count: int | None = None
+    nvidia_ctk_available: bool = False
+
+
+class RunContext(BaseModel):
+    run_group_id: str | None = None
+    condition_name: str | None = None
+    run_type: str = "collect"
+    seed: int | None = None
+    benchmark_name: str | None = None
+    benchmark_revision: str | None = None
+    split_name: str | None = None
+    scorer_name: str | None = None
+    trainer_name: str | None = None
+    model_backend: str | None = None
+    training_backend: str | None = None
+    deployment_profile: str | None = None
+    container_image_tag: str | None = None
+    aws_instance_profile: str | None = None
+    machine_profile: MachineProfile = Field(default_factory=MachineProfile)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class EpisodeRun(BaseModel):
     run_id: str
     episode_id: str
@@ -145,6 +176,30 @@ class EpisodeRun(BaseModel):
         if self.root_node_id not in node_ids:
             raise ValueError("root_node_id must exist in nodes")
         return self
+
+
+class RunRecord(BaseModel):
+    run_id: str
+    experiment_name: str
+    env_name: str
+    policy_name: str
+    run_group_id: str | None = None
+    condition_name: str | None = None
+    run_type: str = "collect"
+    seed: int | None = None
+    benchmark_name: str | None = None
+    benchmark_revision: str | None = None
+    split_name: str | None = None
+    scorer_name: str | None = None
+    trainer_name: str | None = None
+    model_backend: str | None = None
+    training_backend: str | None = None
+    deployment_profile: str | None = None
+    container_image_tag: str | None = None
+    aws_instance_profile: str | None = None
+    machine_profile: MachineProfile = Field(default_factory=MachineProfile)
+    config: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MetricRow(BaseModel):
@@ -172,4 +227,27 @@ class ReplayResult(BaseModel):
     metrics: list[MetricRow]
     changed_examples: list[dict[str, Any]]
     summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrainingTarget(BaseModel):
+    run_id: str
+    episode_id: str
+    transition_id: str
+    state_hash: str
+    action: str
+    scorer_name: str
+    score: float
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConditionSummary(BaseModel):
+    run_group_id: str
+    condition_name: str
+    benchmark_name: str
+    metric_name: str
+    mean: float
+    min: float
+    max: float
+    count: int
+    metadata: dict[str, Any] = Field(default_factory=dict)
 

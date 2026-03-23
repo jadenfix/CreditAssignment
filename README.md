@@ -1,53 +1,68 @@
 # CreditLab
 
-Local-first baseline scaffold for branch-aware credit assignment research on long-horizon agents.
+Cornerstone research repo for branch-aware hindsight credit assignment experiments under matched budgets.
 
-## Research Objective
+## Core Claim
 
-v0 objective: determine whether action-level branch-aware offline rescoring on replayed trajectories produces better matched-prefix branch selection than outcome-only scoring under equal collection budgets.
+CreditLab is built to test whether branch-aware plus hindsight credit shifts probability mass toward better downstream branches, improves search quality, and improves downstream task success over outcome-only training under equal collection budgets.
 
-## What Is Implemented
+## What Exists Now
 
-- Typed experiment configs backed by YAML.
-- Two runnable environments: `diagnostic_branch_lab` and a local `webshop` smoke adapter.
-- Verifier-first rollout collection with state-based node deduplication into replayable trajectory graphs.
-- SQLite metadata storage plus Parquet artifacts for episodes and replay outputs.
-- Outcome-only training baseline.
-- Offline `branch_aware` and `hindsight` rescoring.
-- Required summary and failure-analysis reporting.
-- CLI commands for `collect`, `train`, `replay`, `report`, and `validate-config`.
+- Versioned benchmark manifests for `diagnostic`, `webshop`, `alfworld`, `livecodebench`, and `swebench_lite`.
+- Manifest-driven env adapters with shared verifier-first state transitions.
+- SQLite + Parquet experiment store with run-group, condition, seed, benchmark, and deployment metadata.
+- Scored table trainers for `outcome_only`, `branch_aware`, `hindsight`, and `combined`.
+- Sweep execution for the six paper conditions.
+- Aggregate reporting, budget-parity checks, failure analysis, and paper-asset export.
+- AWS GPU Docker lane with host-check tooling, bootstrap scripts, CPU/GPU Dockerfiles, and compose wiring.
 
-## Layout
-
-```text
-src/creditlab/
-  analysis/    report + replay analysis
-  cli/         Typer CLI
-  core/        configs, models, interfaces, registry
-  envs/        diagnostic, webshop, code-agent contracts
-  policies/    prompted + table policy backends
-  rollout/     collection engine
-  store/       SQLite + Parquet trajectory store
-  tracking/    local + optional W&B tracker
-  trainers/    outcome-only trainer
-  verifiers/   offline rescorers
-configs/       example experiments
-docs/          architecture notes
-tests/         unit and integration coverage
-```
-
-## Quickstart
+## Main Commands
 
 ```bash
-uv run creditlab validate-config --config configs/diagnostic_smoke.yaml
+uv run creditlab validate-config --config configs/diagnostic_paper.yaml
 uv run creditlab collect --config configs/diagnostic_smoke.yaml
-uv run creditlab train --config configs/diagnostic_outcome_only.yaml
+uv run creditlab train --config configs/diagnostic_outcome_only.yaml --scorer outcome_only
 uv run creditlab replay --run-id <run_id> --config configs/diagnostic_smoke.yaml --scorer branch_aware
 uv run creditlab report --run-id <run_id> --config configs/diagnostic_smoke.yaml
+uv run creditlab sweep --config configs/diagnostic_paper.yaml
+uv run creditlab aggregate --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+uv run creditlab export-results --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+uv run creditlab render-paper-assets --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+uv run creditlab host-check --output artifacts/host_report.json
+```
+
+## Benchmarks
+
+- `diagnostic`: explicit pivotal, dead-end, enabling, and recovery tasks for method debugging.
+- `webshop`: shopping-task benchmark manifest for branchy long-horizon decisions.
+- `alfworld`: text embodied tasks for navigation, enabling steps, and recovery.
+- `livecodebench`: first evaluation-only code transfer benchmark.
+- `swebench_lite`: heavier code benchmark after inner-loop results are stable.
+
+## AWS Path
+
+- Recommended host: `Ubuntu 22.04` on `g6e.4xlarge`
+- Budget fallback: `g6.4xlarge`
+- Escalation only if needed: `p5.4xlarge`
+- Setup guide: [docs/aws_gpu_setup.md](/Users/jadenfix/RLLL/docs/aws_gpu_setup.md)
+- Bootstrap scripts: `scripts/aws/`
+- Compose stack: `docker/docker-compose.aws.yml`
+
+## Repo Layout
+
+```text
+benchmarks/     versioned benchmark manifests
+configs/        smoke, benchmark, and paper configs
+docker/         cpu/gpu images and aws compose file
+docs/           architecture and aws setup
+paper/          manuscript scaffold
+scripts/aws/    host bootstrap and sync helpers
+src/creditlab/  experiment system
+tests/          local verification
 ```
 
 ## Notes
 
-- `webshop` is a self-contained smoke adapter, not the full public benchmark integration yet.
-- Code-agent benchmarks are interface-only in v0 by design.
-- Local structured artifacts in `artifacts/` are the source of truth; W&B is optional.
+- The benchmark adapters are manifest-driven so the repo stays reproducible even when the heavyweight public benchmarks are integrated in stages.
+- The full experiment path is Linux GPU first; macOS remains a smoke-run and analysis machine.
+- Local structured artifacts in `artifacts/` are still the source of truth even when W&B is enabled.

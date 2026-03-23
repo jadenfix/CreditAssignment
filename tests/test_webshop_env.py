@@ -1,9 +1,9 @@
 from creditlab.core.models import ActionEvent
-from creditlab.envs.webshop import WebShopSmokeEnv
+from creditlab.envs.webshop import WebShopEnv
 
 
 def test_webshop_smoke_path_reaches_success():
-    env = WebShopSmokeEnv()
+    env = WebShopEnv()
     task = env.list_tasks("smoke")[0]
     state = env.reset(task)
     state, _, _ = env.step(task, state, ActionEvent(action_id="a1", action_type="tool", content="search:red mug"))

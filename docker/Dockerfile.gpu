@@ -1,0 +1,26 @@
+FROM nvidia/cuda:12.3.2-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/creditlab
+COPY pyproject.toml README.md /workspace/creditlab/
+COPY src /workspace/creditlab/src
+COPY configs /workspace/creditlab/configs
+COPY benchmarks /workspace/creditlab/benchmarks
+COPY docs /workspace/creditlab/docs
+COPY paper /workspace/creditlab/paper
+
+RUN python3 -m pip install --no-cache-dir .
+
+ENTRYPOINT ["python3", "-m", "creditlab.cli.main"]
