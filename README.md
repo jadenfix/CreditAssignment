@@ -48,6 +48,14 @@ uv run creditlab host-check --output artifacts/host_report.json
 - Bootstrap scripts: `scripts/aws/`
 - Compose stack: `docker/docker-compose.aws.yml`
 
+## Safety Rails
+
+- AWS-backed `collect`, `evaluate`, and `sweep` commands fail closed unless `sweep.safety.allow_aws_execution` is explicitly set to `true` in the config you are using.
+- Sweep execution enforces run-count, token, verifier-call, wall-clock, failure-count, and estimated-cost ceilings before launching the next run.
+- `vllm_server` retries transient request failures with bounded backoff and falls back to the local prompted policy if the server stays unhealthy or returns an invalid action.
+- Run `uv run creditlab host-check` on the target AWS host before enabling the AWS configs; the default paper configs require a healthy Docker + NVIDIA + CUDA container probe.
+- Keep the paper configs conservative first, then raise ceilings intentionally after a successful smoke sweep on the target machine.
+
 ## Repo Layout
 
 ```text

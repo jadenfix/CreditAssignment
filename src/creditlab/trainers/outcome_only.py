@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 from creditlab.core.interfaces import TrainerBackend
 from creditlab.core.models import BudgetConfig
+from creditlab.core.utils import new_id
 from creditlab.store.sqlite_store import SqliteTrajectoryStore
 from creditlab.verifiers.scorers import build_training_targets
 
@@ -40,7 +41,7 @@ class ScoredTableTrainer(TrainerBackend):
         }
         policy_dir = self.artifact_root / "policies"
         policy_dir.mkdir(parents=True, exist_ok=True)
-        model_path = policy_dir / f"latest_{scorer}.json"
+        model_path = policy_dir / f"{scorer}_{new_id('model')}.json"
         with model_path.open("w", encoding="utf-8") as handle:
             json.dump(normalized, handle, indent=2, sort_keys=True)
         return {

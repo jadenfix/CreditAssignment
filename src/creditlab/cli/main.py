@@ -7,6 +7,7 @@ import typer
 
 from creditlab.analysis.exporters import export_results_bundle, render_paper_assets
 from creditlab.analysis.reporting import aggregate_run_group, build_replay_result, build_run_report, report_to_metric_rows
+from creditlab.analysis.safety import SafetyViolation, SweepExecutionGuard
 from creditlab.analysis.sweep import SweepRunner
 from creditlab.core.config import load_experiment_config
 from creditlab.core.models import RunContext
@@ -26,6 +27,12 @@ def validate_config(config: str = typer.Option(..., "--config")) -> None:
 @app.command()
 def collect(config: str = typer.Option(..., "--config")) -> None:
     loaded = load_experiment_config(config)
+    if loaded.deployment.platform == "aws_gpu":
+        try:
+            SweepExecutionGuard(loaded, store=None).preflight(planned_runs=1)
+        except SafetyViolation as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
     store = create_store(loaded)
     tracker = create_tracker(loaded.tracking.backend, loaded.tracking.config, loaded.store.artifact_root)
     env = create_env(loaded)
@@ -89,6 +96,12 @@ def report(
 @app.command()
 def evaluate(config: str = typer.Option(..., "--config")) -> None:
     loaded = load_experiment_config(config)
+    if loaded.deployment.platform == "aws_gpu":
+        try:
+            SweepExecutionGuard(loaded, store=None).preflight(planned_runs=1)
+        except SafetyViolation as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
     store = create_store(loaded)
     tracker = create_tracker(loaded.tracking.backend, loaded.tracking.config, loaded.store.artifact_root)
     env = create_env(loaded)
@@ -115,7 +128,11 @@ def evaluate(config: str = typer.Option(..., "--config")) -> None:
 @app.command()
 def sweep(config: str = typer.Option(..., "--config")) -> None:
     loaded = load_experiment_config(config)
-    result = SweepRunner(loaded).run()
+    try:
+        result = SweepRunner(loaded).run()
+    except SafetyViolation as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(json.dumps(result, indent=2, sort_keys=True))
 
 

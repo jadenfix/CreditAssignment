@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from creditlab.core.models import BudgetConfig
 
@@ -67,12 +67,70 @@ class SweepConditionConfig(BaseModel):
     matched_budget: bool = False
 
 
+class SweepSafetyConfig(BaseModel):
+    allow_aws_execution: bool = False
+    require_healthy_gpu_for_aws: bool = True
+    max_total_runs: int = 32
+    max_failed_runs: int = 2
+    max_retry_attempts: int = 2
+    retry_backoff_seconds: float = 1.0
+    stop_on_first_failure: bool = False
+    max_total_prompt_tokens: int = 250_000
+    max_total_completion_tokens: int = 150_000
+    max_total_verifier_calls: int = 50_000
+    max_total_wall_clock_seconds: float = 14_400.0
+    max_estimated_cost_usd: float = 25.0
+    estimated_prompt_cost_per_1k: float = 0.0
+    estimated_completion_cost_per_1k: float = 0.0
+    estimated_instance_cost_per_hour: float = 0.0
+
+    @field_validator("max_total_runs", "max_retry_attempts")
+    @classmethod
+    def _positive_ints(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("value must be positive")
+        return value
+
+    @field_validator("max_failed_runs")
+    @classmethod
+    def _non_negative_failures(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("max_failed_runs must be non-negative")
+        return value
+
+    @field_validator(
+        "retry_backoff_seconds",
+        "max_total_wall_clock_seconds",
+        "max_estimated_cost_usd",
+        "estimated_prompt_cost_per_1k",
+        "estimated_completion_cost_per_1k",
+        "estimated_instance_cost_per_hour",
+    )
+    @classmethod
+    def _non_negative_floats(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("value must be non-negative")
+        return value
+
+    @field_validator(
+        "max_total_prompt_tokens",
+        "max_total_completion_tokens",
+        "max_total_verifier_calls",
+    )
+    @classmethod
+    def _positive_budget_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("budget ceilings must be positive")
+        return value
+
+
 class SweepConfig(BaseModel):
     enabled: bool = False
     run_group_id: str | None = None
     seeds: list[int] = Field(default_factory=list)
     resume: bool = True
     conditions: list[SweepConditionConfig] = Field(default_factory=list)
+    safety: SweepSafetyConfig = Field(default_factory=SweepSafetyConfig)
 
 
 class ExperimentControl(BaseModel):

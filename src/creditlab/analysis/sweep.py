@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from creditlab.analysis.reporting import aggregate_run_group
+from creditlab.analysis.safety import SafetyViolation, SweepExecutionGuard
 from creditlab.core.config import ExperimentConfig
 from creditlab.core.models import RunContext
 from creditlab.core.registry import create_env, create_policy, create_store, create_tracker, create_trainer
@@ -20,19 +19,81 @@ class SweepRunner:
         run_group_id = self.config.sweep.run_group_id or new_id("group")
         seeds = self.config.sweep.seeds or self.config.experiment.seeds
         run_index: dict[str, dict[str, dict[str, str]]] = {}
+        guard = SweepExecutionGuard(self.config, self.store)
+        planned_runs = len(seeds) * (1 + len(self.config.sweep.conditions))
+        guard.preflight(planned_runs)
         for seed in seeds:
-            base_collect_run = self._collect_base_prompted_run(run_group_id, seed)
-            run_index[str(seed)] = {"collection": {"prompted_base": base_collect_run}}
+            if guard.should_halt():
+                break
+            run_index[str(seed)] = {"collection": {}, "evaluation": {}}
+            base_collect_run: str | None = None
+            try:
+                base_collect_run = self._execute_run_step(
+                    guard=guard,
+                    label=f"seed={seed}/collection/prompted_base",
+                    operation=lambda seed=seed: self._collect_base_prompted_run(run_group_id, seed),
+                )
+                run_index[str(seed)]["collection"]["prompted_base"] = base_collect_run
+            except Exception:
+                run_index[str(seed)]["collection"]["prompted_base"] = None
             for condition in self.config.sweep.conditions:
-                if condition.name == "prompted":
-                    eval_run = self._evaluate_prompted(run_group_id, seed)
-                else:
-                    eval_run = self._train_and_evaluate(run_group_id, seed, base_collect_run, condition.name, condition.scorer or condition.name, condition.trainer_name or condition.name)
-                run_index[str(seed)].setdefault("evaluation", {})[condition.name] = eval_run
+                if guard.should_halt():
+                    break
+                if condition.name != "prompted" and base_collect_run is None:
+                    run_index[str(seed)]["evaluation"][condition.name] = None
+                    continue
+                try:
+                    if condition.name == "prompted":
+                        eval_run = self._execute_run_step(
+                            guard=guard,
+                            label=f"seed={seed}/evaluation/prompted",
+                            operation=lambda seed=seed: self._evaluate_prompted(run_group_id, seed),
+                        )
+                    else:
+                        assert base_collect_run is not None
+                        eval_run = self._execute_run_step(
+                            guard=guard,
+                            label=f"seed={seed}/evaluation/{condition.name}",
+                            operation=lambda seed=seed, base_collect_run=base_collect_run, condition=condition: self._train_and_evaluate(
+                                run_group_id,
+                                seed,
+                                base_collect_run,
+                                condition.name,
+                                condition.scorer or condition.name,
+                                condition.trainer_name or condition.name,
+                            ),
+                        )
+                    run_index[str(seed)]["evaluation"][condition.name] = eval_run
+                except Exception:
+                    run_index[str(seed)]["evaluation"][condition.name] = None
+                    if guard.should_halt():
+                        break
         aggregate = aggregate_run_group(run_group_id, self.store)
-        payload = {"run_group_id": run_group_id, "runs": run_index, "aggregate": aggregate}
+        payload = {
+            "run_group_id": run_group_id,
+            "runs": run_index,
+            "aggregate": aggregate,
+            "safety": guard.summary(),
+        }
         self.tracker.log_artifact(run_group_id, "sweep", payload)
         return payload
+
+    def _execute_run_step(
+        self,
+        guard: SweepExecutionGuard,
+        label: str,
+        operation,
+    ) -> str:
+        try:
+            run_id = guard.run_with_retries(label, self.config.experiment.budgets, operation)
+        except SafetyViolation as exc:
+            guard.halt_reason = str(exc)
+            raise
+        try:
+            guard.record_run(run_id, label)
+        except SafetyViolation as exc:
+            guard.halt_reason = str(exc)
+        return run_id
 
     def _collect_base_prompted_run(self, run_group_id: str, seed: int) -> str:
         collect_config = self.config.model_copy(deep=True)

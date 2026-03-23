@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from creditlab.analysis.reporting import build_replay_result, build_run_report, report_to_metric_rows
 from creditlab.core.config import ExperimentConfig
@@ -44,7 +44,13 @@ class RolloutEngine:
         self.store.create_run(config.model_dump(mode="json"), run_id, context)
         tasks = self.env.list_tasks(split_name)
         budget = config.experiment.budgets
+        run_started_at = datetime.now(tz=UTC)
+        deadline_at = None
+        if budget.wall_clock_seconds is not None:
+            deadline_at = run_started_at + timedelta(seconds=budget.wall_clock_seconds)
         for rollout_index in range(budget.rollout_count):
+            if deadline_at is not None and datetime.now(tz=UTC) >= deadline_at:
+                break
             task = tasks[rollout_index % len(tasks)]
             episode = self._collect_episode(
                 config=config,
@@ -52,6 +58,7 @@ class RolloutEngine:
                 task=task,
                 rollout_index=rollout_index,
                 run_context=context,
+                deadline_at=deadline_at,
             )
             self.store.write_episode(episode)
         replay_result = build_replay_result(run_id, self.store, "branch_aware", persist=True)
@@ -70,6 +77,7 @@ class RolloutEngine:
         task,
         rollout_index: int,
         run_context: RunContext,
+        deadline_at: datetime | None = None,
     ) -> EpisodeRun:
         budget = config.experiment.budgets
         episode_id = new_id("episode")
@@ -91,6 +99,9 @@ class RolloutEngine:
         success = False
         outcome = "max_turns"
         for turn_index in range(budget.max_turns):
+            if deadline_at is not None and datetime.now(tz=UTC) >= deadline_at:
+                outcome = "wall_clock_budget_exhausted"
+                break
             action = self.policy.act(transitions, state, budget, task)
             next_state, observation_text, terminal = self.env.step(task, state, action)
             observation = ObservationEvent(text=observation_text)

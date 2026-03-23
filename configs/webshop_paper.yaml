@@ -37,6 +37,21 @@ paper_export:
 sweep:
   enabled: true
   seeds: [13, 17, 23]
+  safety:
+    allow_aws_execution: false
+    require_healthy_gpu_for_aws: true
+    max_total_runs: 24
+    max_failed_runs: 2
+    max_retry_attempts: 2
+    retry_backoff_seconds: 2.0
+    max_total_prompt_tokens: 150000
+    max_total_completion_tokens: 90000
+    max_total_verifier_calls: 5000
+    max_total_wall_clock_seconds: 1800
+    max_estimated_cost_usd: 12.0
+    estimated_prompt_cost_per_1k: 0.0
+    estimated_completion_cost_per_1k: 0.0
+    estimated_instance_cost_per_hour: 4.0
 experiment:
   seeds: [13, 17, 23]
   budgets:
@@ -46,4 +61,3 @@ experiment:
     max_completion_tokens: 96
     max_verifier_calls: 32
     wall_clock_seconds: 60
-

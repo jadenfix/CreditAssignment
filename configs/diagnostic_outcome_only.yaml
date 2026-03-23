@@ -27,6 +27,18 @@ benchmark:
 deployment:
   profile: local_smoke
   platform: local
+sweep:
+  safety:
+    allow_aws_execution: false
+    max_total_runs: 8
+    max_failed_runs: 1
+    max_retry_attempts: 1
+    retry_backoff_seconds: 0.0
+    max_total_prompt_tokens: 15000
+    max_total_completion_tokens: 8000
+    max_total_verifier_calls: 1000
+    max_total_wall_clock_seconds: 300
+    max_estimated_cost_usd: 1.0
 experiment:
   seeds: [7]
   budgets:
@@ -36,4 +48,3 @@ experiment:
     max_completion_tokens: 64
     max_verifier_calls: 32
     wall_clock_seconds: 30
-
