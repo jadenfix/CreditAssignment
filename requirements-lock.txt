@@ -1,0 +1,19 @@
+# CreditLab direct dependency pins — generated 2026-03-26
+# Documents exact versions known-good when all 11 tests passed on Python 3.11.9.
+# NOT a full pip freeze (system has 200+ unrelated packages).
+#
+# To re-generate:
+#   pip show pydantic sqlalchemy pyarrow polars typer pyyaml pytest | grep -E "^(Name|Version)"
+#
+# Canonical install (uses pyproject.toml range constraints):
+#   pip install -e ".[dev]"
+
+pydantic==2.11.7
+sqlalchemy==2.0.48
+pyarrow==21.0.0
+polars==1.39.3
+typer==0.21.1
+PyYAML==6.0.2
+
+# dev
+pytest==8.4.2

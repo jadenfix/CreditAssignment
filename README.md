@@ -16,19 +16,36 @@ CreditLab is built to test whether branch-aware plus hindsight credit shifts pro
 - Aggregate reporting, budget-parity checks, failure analysis, and paper-asset export.
 - AWS GPU Docker lane with host-check tooling, bootstrap scripts, CPU/GPU Dockerfiles, and compose wiring.
 
+## Setup
+
+```bash
+pip install -e ".[dev]"   # install creditlab + pytest (editable)
+make test                 # verify: 11/11 tests should pass
+```
+
+Or use `./setup.sh` for a guided install with Python version check.
+
 ## Main Commands
 
 ```bash
-uv run creditlab validate-config --config configs/diagnostic_paper.yaml
-uv run creditlab collect --config configs/diagnostic_smoke.yaml
-uv run creditlab train --config configs/diagnostic_outcome_only.yaml --scorer outcome_only
-uv run creditlab replay --run-id <run_id> --config configs/diagnostic_smoke.yaml --scorer branch_aware
-uv run creditlab report --run-id <run_id> --config configs/diagnostic_smoke.yaml
-uv run creditlab sweep --config configs/diagnostic_paper.yaml
-uv run creditlab aggregate --config configs/diagnostic_paper.yaml --run-group-id <group_id>
-uv run creditlab export-results --config configs/diagnostic_paper.yaml --run-group-id <group_id>
-uv run creditlab render-paper-assets --config configs/diagnostic_paper.yaml --run-group-id <group_id>
-uv run creditlab host-check --output artifacts/host_report.json
+creditlab validate-config --config configs/diagnostic_paper.yaml
+creditlab collect --config configs/diagnostic_smoke.yaml
+creditlab train --config configs/diagnostic_outcome_only.yaml --scorer outcome_only
+creditlab replay --run-id <run_id> --config configs/diagnostic_smoke.yaml --scorer branch_aware
+creditlab report --run-id <run_id> --config configs/diagnostic_smoke.yaml
+creditlab sweep --config configs/diagnostic_paper.yaml
+creditlab aggregate --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+creditlab export-results --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+creditlab render-paper-assets --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+creditlab host-check --output artifacts/host_report.json
+```
+
+Quick workflow:
+
+```bash
+make smoke       # validate config + collect one run (seed=7, local)
+make run-paper   # sweep all 6 paper conditions (local, diagnostic)
+make clean-data  # archive + wipe runs/ and artifacts/ for a fresh slate
 ```
 
 ## Benchmarks
