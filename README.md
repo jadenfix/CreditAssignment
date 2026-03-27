@@ -15,6 +15,7 @@ CreditLab is built to test whether branch-aware plus hindsight credit shifts pro
 - Sweep execution for the six paper conditions.
 - Aggregate reporting, budget-parity checks, failure analysis, and paper-asset export.
 - AWS GPU Docker lane with host-check tooling, bootstrap scripts, CPU/GPU Dockerfiles, and compose wiring.
+- GCP GPU Docker lane with L4 support, GCS sync, and parallel bootstrap scripts.
 
 ## Setup
 
@@ -65,9 +66,19 @@ make clean-data  # archive + wipe runs/ and artifacts/ for a fresh slate
 - Bootstrap scripts: `scripts/aws/`
 - Compose stack: `docker/docker-compose.aws.yml`
 
+## GCP Path
+
+- Recommended host: `g2-standard-8` with 1× NVIDIA L4 (~$0.70/hr on-demand, ~$0.25/hr spot)
+- Zone: `us-central1-a`
+- Setup guide: [docs/gcp_gpu_setup.md](docs/gcp_gpu_setup.md)
+- Bootstrap scripts: `scripts/gcp/`
+- Compose stack: `docker/docker-compose.gcp.yml`
+- Config: `configs/diagnostic_paper_gcp.yaml`
+
 ## Safety Rails
 
 - AWS-backed `collect`, `evaluate`, and `sweep` commands fail closed unless `sweep.safety.allow_aws_execution` is explicitly set to `true` in the config you are using.
+- GCP-backed sweep commands fail closed unless `sweep.safety.allow_gcp_execution` is explicitly set to `true`. Run `creditlab host-check` on the GCP host before enabling GCP configs.
 - Sweep execution enforces run-count, token, verifier-call, wall-clock, failure-count, and estimated-cost ceilings before launching the next run.
 - `vllm_server` retries transient request failures with bounded backoff and falls back to the local prompted policy if the server stays unhealthy or returns an invalid action.
 - Run `uv run creditlab host-check` on the target AWS host before enabling the AWS configs; the default paper configs require a healthy Docker + NVIDIA + CUDA container probe.
@@ -78,10 +89,11 @@ make clean-data  # archive + wipe runs/ and artifacts/ for a fresh slate
 ```text
 benchmarks/     versioned benchmark manifests
 configs/        smoke, benchmark, and paper configs
-docker/         cpu/gpu images and aws compose file
-docs/           architecture and aws setup
+docker/         cpu/gpu images, aws compose file, and gcp compose file
+docs/           architecture, aws setup, and gcp setup
 paper/          manuscript scaffold
-scripts/aws/    host bootstrap and sync helpers
+scripts/aws/    AWS host bootstrap and sync helpers
+scripts/gcp/    GCP host bootstrap and sync helpers
 src/creditlab/  experiment system
 tests/          local verification
 ```

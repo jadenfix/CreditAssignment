@@ -1,0 +1,50 @@
+services:
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    image: creditlab-gpu:latest
+    working_dir: /workspace/creditlab
+    command: ["sweep", "--config", "configs/diagnostic_paper_gcp.yaml"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      CREDITLAB_DATA_ROOT: /data/creditlab
+      CREDITLAB_WORKSPACE: /workspace/creditlab
+    volumes:
+      - ../:/workspace/creditlab
+      - /data/creditlab:/data/creditlab
+
+  vllm-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    image: creditlab-gpu:latest
+    working_dir: /workspace/creditlab
+    command: ["host-check"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ../:/workspace/creditlab
+      - /data/creditlab:/data/creditlab
+
+  exporter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cpu
+    image: creditlab-cpu:latest
+    working_dir: /workspace/creditlab
+    command: ["host-check"]
+    volumes:
+      - ../:/workspace/creditlab
+      - /data/creditlab:/data/creditlab

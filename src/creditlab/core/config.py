@@ -52,6 +52,8 @@ class DeploymentConfig(BaseModel):
     data_dir: str | None = None
     aws_instance_profile: str | None = None
     s3_sync_uri: str | None = None
+    gcp_instance_profile: str | None = None
+    gcs_sync_uri: str | None = None
 
 
 class PaperExportConfig(BaseModel):
@@ -70,6 +72,8 @@ class SweepConditionConfig(BaseModel):
 class SweepSafetyConfig(BaseModel):
     allow_aws_execution: bool = False
     require_healthy_gpu_for_aws: bool = True
+    allow_gcp_execution: bool = False
+    require_healthy_gpu_for_gcp: bool = True
     max_total_runs: int = 32
     max_failed_runs: int = 2
     max_retry_attempts: int = 2

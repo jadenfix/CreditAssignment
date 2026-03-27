@@ -149,6 +149,7 @@ class RunContext(BaseModel):
     deployment_profile: str | None = None
     container_image_tag: str | None = None
     aws_instance_profile: str | None = None
+    gcp_instance_profile: str | None = None
     machine_profile: MachineProfile = Field(default_factory=MachineProfile)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -197,6 +198,7 @@ class RunRecord(BaseModel):
     deployment_profile: str | None = None
     container_image_tag: str | None = None
     aws_instance_profile: str | None = None
+    gcp_instance_profile: str | None = None
     machine_profile: MachineProfile = Field(default_factory=MachineProfile)
     config: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)

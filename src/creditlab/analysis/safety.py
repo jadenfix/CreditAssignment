@@ -57,6 +57,14 @@ class SweepExecutionGuard:
             if self.safety.require_healthy_gpu_for_aws:
                 self.host_report = build_host_report()
                 self._validate_aws_host(self.host_report)
+        elif self.config.deployment.platform == "gcp_gpu":
+            if not self.safety.allow_gcp_execution:
+                raise SafetyViolation(
+                    "deployment.platform=gcp_gpu is disabled by sweep.safety.allow_gcp_execution=false"
+                )
+            if self.safety.require_healthy_gpu_for_gcp:
+                self.host_report = build_host_report()
+                self._validate_gcp_host(self.host_report)
         return self.summary()
 
     def run_with_retries(
@@ -250,6 +258,25 @@ class SweepExecutionGuard:
         completion_cost = (completion_tokens / 1000.0) * self.safety.estimated_completion_cost_per_1k
         instance_cost = (wall_clock_seconds / 3600.0) * self.safety.estimated_instance_cost_per_hour
         return float(prompt_cost + completion_cost + instance_cost)
+
+    def _validate_gcp_host(self, report: dict[str, Any]) -> None:
+        profile = report.get("machine_profile", {})
+        cuda_probe = report.get("docker_cuda_probe", {})
+        failures: list[str] = []
+        if not profile.get("docker_available"):
+            failures.append("docker is unavailable")
+        if not profile.get("gpu_available"):
+            failures.append("nvidia-smi is unavailable")
+        if not profile.get("nvidia_ctk_available"):
+            failures.append("nvidia-ctk is unavailable")
+        if not cuda_probe.get("ok"):
+            failures.append("docker cuda probe failed")
+        if failures:
+            raise SafetyViolation(
+                "GCP GPU preflight failed: "
+                + "; ".join(failures)
+                + ". Run `creditlab host-check` or scripts/gcp/validate_cuda_container.sh on the target host."
+            )
 
     def _validate_aws_host(self, report: dict[str, Any]) -> None:
         profile = report.get("machine_profile", {})
