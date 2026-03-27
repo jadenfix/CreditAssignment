@@ -37,7 +37,7 @@ deployment:
   workspace_dir: /workspace/creditlab
   data_dir: /data/creditlab
   gcp_instance_profile: g2-standard-8
-  gcs_sync_uri: gs://YOUR_BUCKET_creditlab/runs
+  gcs_sync_uri: gs://creditlab-491502-runs/runs
 paper_export:
   output_dir: artifacts/paper
   manuscript_path: paper/manuscript.md
