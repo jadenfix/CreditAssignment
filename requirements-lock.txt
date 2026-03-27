@@ -1,5 +1,5 @@
 # CreditLab direct dependency pins — generated 2026-03-26
-# Documents exact versions known-good when all 11 tests passed on Python 3.11.9.
+# Documents exact versions known-good when all 11 tests passed on Python 3.13.7.
 # NOT a full pip freeze (system has 200+ unrelated packages).
 #
 # To re-generate:
@@ -8,12 +8,12 @@
 # Canonical install (uses pyproject.toml range constraints):
 #   pip install -e ".[dev]"
 
-pydantic==2.11.7
+pydantic==2.12.5
 sqlalchemy==2.0.48
 pyarrow==21.0.0
 polars==1.39.3
-typer==0.21.1
-PyYAML==6.0.2
+typer==0.24.1
+PyYAML==6.0.3
 
 # dev
 pytest==8.4.2

@@ -14,13 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace/creditlab
-COPY pyproject.toml README.md /workspace/creditlab/
+COPY pyproject.toml README.md requirements-lock.txt /workspace/creditlab/
 COPY src /workspace/creditlab/src
 COPY configs /workspace/creditlab/configs
 COPY benchmarks /workspace/creditlab/benchmarks
 COPY docs /workspace/creditlab/docs
 COPY paper /workspace/creditlab/paper
 
-RUN python3 -m pip install --no-cache-dir .
+RUN python3 -m pip install --no-cache-dir -r requirements-lock.txt && \
+    python3 -m pip install --no-cache-dir --no-deps .
 
 ENTRYPOINT ["python3", "-m", "creditlab.cli.main"]
