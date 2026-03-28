@@ -45,7 +45,7 @@ sweep:
   enabled: true
   seeds: [7, 11, 19]
   safety:
-    allow_gcp_execution: false
+    allow_gcp_execution: true
     require_healthy_gpu_for_gcp: true
     max_total_runs: 24
     max_failed_runs: 2
