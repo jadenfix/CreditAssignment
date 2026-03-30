@@ -43,11 +43,11 @@ paper_export:
   manuscript_path: paper/manuscript.md
 sweep:
   enabled: true
-  seeds: [7, 11, 19]
+  seeds: [7, 11, 19, 23, 31, 37, 41]
   safety:
     allow_gcp_execution: true
     require_healthy_gpu_for_gcp: true
-    max_total_runs: 24
+    max_total_runs: 56
     max_failed_runs: 2
     max_retry_attempts: 2
     retry_backoff_seconds: 2.0
@@ -60,7 +60,7 @@ sweep:
     estimated_completion_cost_per_1k: 0.0
     estimated_instance_cost_per_hour: 0.70
 experiment:
-  seeds: [7, 11, 19]
+  seeds: [7, 11, 19, 23, 31, 37, 41]
   budgets:
     rollout_count: 50
     max_turns: 10
