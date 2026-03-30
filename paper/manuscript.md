@@ -23,7 +23,7 @@ TODO: describe the state graph, verifier events, offline scorers, and scored onl
 
 ## Results
 
-*Run group: `group_58677ce9bd4f` — 3 seeds (7, 11, 19) × 6 conditions = 24 runs on diagnostic benchmark (train/eval splits, 20 rollouts per run, exploration_rate=0.5).*
+*Run group: `group_ccab88c727fd` — 3 seeds (7, 11, 19) × 6 conditions = 24 runs on diagnostic benchmark (train/eval splits, 20 rollouts per run, exploration_rate=0.5). Executed on GCP g2-standard-8 (NVIDIA L4, CUDA 12.8). Identical results reproduced locally (group_58677ce9bd4f).*
 
 *Benchmark: 3 train tasks (dead_end, enabling, recovery) × 3 eval tasks (dead_end_eval, enabling_eval, recovery_eval). State hashes shared between train and eval so trained models are directly applicable at test time. Collection policy uses a stateful RNG (seeded once per run) to ensure each rollout independently explores the action space.*
 
@@ -62,8 +62,8 @@ The prompted baseline shows mean branch change rate of 0.103, confirming the heu
 
 ### Plots
 
-- Success by condition: `artifacts/paper/group_58677ce9bd4f/success_by_condition.svg`
-- Branch change rate: `artifacts/paper/group_58677ce9bd4f/change_rate.svg`
+- Success by condition: `artifacts/paper/group_ccab88c727fd/success_by_condition.svg`
+- Branch change rate: `artifacts/paper/group_ccab88c727fd/change_rate.svg`
 
 ## Failure Analysis
 
