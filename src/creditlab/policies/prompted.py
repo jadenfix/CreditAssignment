@@ -19,6 +19,7 @@ class PromptedPolicyBackend(PolicyBackend):
         self.config = config or {}
         self.exploration_rate = float(self.config.get("exploration_rate", 0.2))
         self.seed = int(self.config.get("seed", 7))
+        self._rng = random.Random(self.seed)
 
     def act(
         self,
@@ -29,7 +30,7 @@ class PromptedPolicyBackend(PolicyBackend):
     ) -> ActionEvent:
         available = list(state.payload.get("available_actions", []))
         oracle = state.payload.get("oracle_action")
-        rng = random.Random(f"{self.seed}:{task.task_id}:{state.state_hash}:{len(history)}")
+        rng = self._rng
         if not available:
             choice = "noop"
         elif oracle in available and rng.random() >= self.exploration_rate:

@@ -232,8 +232,9 @@ tasks:
         abstract_fields: {family: dead_end}
         oracle_action: inspect
         edges:
-          inspect: {next_node: prepared, observation: Inspection reveals the right path., progress_delta: 1, state_delta: improved, branch_label: pivotal}
+          inspect: {next_node: prepared, observation: Inspection reveals the right path., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {inspection_quality: 1}}
           rush: {next_node: dead_end, observation: Rushing goes to a dead end., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          wait: {next_node: start, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
       prepared:
         phase: commit
         mode: prepared
@@ -266,8 +267,9 @@ tasks:
         abstract_fields: {family: enabling}
         oracle_action: collect_clue
         edges:
-          collect_clue: {next_node: ready, observation: The clue unlocks the path., progress_delta: 0, state_delta: neutral, branch_label: enabling, enabling: true}
+          collect_clue: {next_node: ready, observation: The clue unlocks the path., progress_delta: 0, state_delta: neutral, branch_label: enabling, enabling: true, verifier_signals: {knowledge_gain: 1}}
           answer_now: {next_node: failure, observation: Early answer fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: premature, dead_end: true}
+          browse: {next_node: start, observation: Browsing is locally plausible but not useful., progress_delta: 0, state_delta: neutral, branch_label: stall}
       ready:
         phase: solve
         mode: ready
@@ -279,6 +281,78 @@ tasks:
           ignore_clue: {next_node: failure, observation: Ignoring the clue fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure}
       success: {phase: done, mode: success, progress: 3, abstract_fields: {family: enabling}, edges: {}}
       failure: {phase: done, mode: failure, progress: -1, abstract_fields: {family: enabling}, edges: {}}
+  - task_id: diag_recovery_eval_01
+    split: eval
+    instruction: Recover from the initial mistake and finish cleanly.
+    metadata: {family: recovery, pivotal_branch: recover, misleading_branch: double_down}
+    states:
+      start:
+        phase: attempt
+        mode: start
+        progress: 0
+        abstract_fields: {family: recovery}
+        oracle_action: wrong_tool
+        edges:
+          wrong_tool:
+            next_node: mistake
+            observation: The wrong tool introduces an error.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: mistake
+            dead_end: true
+          safe_probe:
+            next_node: recovered
+            observation: A safe probe leaves a viable path open.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: safe
+      mistake:
+        phase: repair
+        mode: mistake
+        progress: -1
+        abstract_fields: {family: recovery}
+        oracle_action: recover
+        edges:
+          recover:
+            next_node: recovered
+            observation: Recovery restores a viable path.
+            progress_delta: 2
+            state_delta: improved
+            branch_label: recovery
+            recovery: true
+            verifier_signals: {repair_quality: 1}
+          double_down:
+            next_node: failure
+            observation: Doubling down makes the task unrecoverable.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+            dead_end: true
+      recovered:
+        phase: finish
+        mode: recovered
+        progress: 1
+        abstract_fields: {family: recovery}
+        oracle_action: finish_cleanly
+        edges:
+          finish_cleanly:
+            next_node: success
+            observation: You finish the task cleanly after recovery.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+          panic:
+            next_node: failure
+            observation: Panic destroys the recovered path.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: recovery}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: recovery}, edges: {}}
   - task_id: diag_smoke_01
     split: smoke
     instruction: Resolve a short dead-end smoke task.
@@ -303,6 +377,40 @@ tasks:
           commit_fix: {next_node: success, observation: The fix succeeds., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
       success: {phase: done, mode: success, progress: 3, abstract_fields: {family: dead_end}, edges: {}}
       failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: dead_end}, edges: {}}
+  - task_id: diag_smoke_03
+    split: smoke
+    instruction: Recover from the initial mistake and finish cleanly.
+    metadata: {family: recovery, pivotal_branch: recover, misleading_branch: double_down}
+    states:
+      start:
+        phase: attempt
+        mode: start
+        progress: 0
+        abstract_fields: {family: recovery}
+        oracle_action: wrong_tool
+        edges:
+          wrong_tool: {next_node: mistake, observation: The wrong tool introduces an error., progress_delta: -1, state_delta: regressed, branch_label: mistake, dead_end: true}
+          safe_probe: {next_node: recovered, observation: A safe probe leaves a viable path open., progress_delta: 1, state_delta: improved, branch_label: safe}
+      mistake:
+        phase: repair
+        mode: mistake
+        progress: -1
+        abstract_fields: {family: recovery}
+        oracle_action: recover
+        edges:
+          recover: {next_node: recovered, observation: Recovery restores a viable path., progress_delta: 2, state_delta: improved, branch_label: recovery, recovery: true}
+          double_down: {next_node: failure, observation: Doubling down makes the task unrecoverable., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      recovered:
+        phase: finish
+        mode: recovered
+        progress: 1
+        abstract_fields: {family: recovery}
+        oracle_action: finish_cleanly
+        edges:
+          finish_cleanly: {next_node: success, observation: You finish the task cleanly after recovery., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success}
+          panic: {next_node: failure, observation: Panic destroys the recovered path., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: recovery}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: recovery}, edges: {}}
   - task_id: diag_smoke_02
     split: smoke
     instruction: Solve a short enabling smoke task.
