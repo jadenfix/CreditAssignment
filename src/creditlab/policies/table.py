@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -16,6 +17,7 @@ class TablePolicyBackend(PolicyBackend):
         self.config = config or {}
         self.artifact_root = artifact_root
         self.fallback = self.config.get("fallback_action")
+        self._rng = random.Random(self.config.get("seed", 0))
         model_path = Path(self.config.get("model_path", artifact_root / "policies" / "latest_outcome_only.json"))
         self.model = self._load(model_path)
 
@@ -39,12 +41,12 @@ class TablePolicyBackend(PolicyBackend):
         elif state_scores:
             choice = max(available, key=lambda action: state_scores.get(action, float("-inf")))
         else:
-            choice = self.fallback or state.payload.get("oracle_action") or available[0]
+            choice = self.fallback or self._rng.choice(available)
         return ActionEvent(
             action_id=new_id("action"),
             action_type="tool",
             content=choice,
             prompt_tokens=min(8 + len(history) * 2, budget.max_prompt_tokens),
             completion_tokens=min(8, budget.max_completion_tokens),
-            metadata={"policy": self.policy_name, "state_hash": state.state_hash},
+            metadata={"policy": self.policy_name, "state_hash": state.state_hash, "model_hit": bool(state_scores)},
         )

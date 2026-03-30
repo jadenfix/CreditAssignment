@@ -220,6 +220,237 @@ tasks:
             branch_label: failure
       success: {phase: done, mode: success, progress: 3, abstract_fields: {family: recovery}, edges: {}}
       failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: recovery}, edges: {}}
+  - task_id: diag_multi_gate_train_01
+    split: train
+    instruction: Pass through three gates in sequence, avoiding stalls at each one.
+    metadata:
+      family: multi_gate
+      pivotal_branch: unlock_gate
+      misleading_branch: rattle_gate
+    states:
+      start:
+        phase: gate
+        mode: gate_1
+        progress: 0
+        abstract_fields: {family: multi_gate, gate: 1}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: gate_2
+            observation: The first gate opens.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {gate_progress: 1}
+          rattle_gate:
+            next_node: start
+            observation: Rattling the gate does nothing.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+          force_gate:
+            next_node: blocked
+            observation: Forcing the gate jams it.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: dead_end
+            dead_end: true
+      gate_2:
+        phase: gate
+        mode: gate_2
+        progress: 1
+        abstract_fields: {family: multi_gate, gate: 2}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: gate_3
+            observation: The second gate opens.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {gate_progress: 1}
+          rattle_gate:
+            next_node: gate_2
+            observation: Rattling the second gate is useless.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+          retreat:
+            next_node: start
+            observation: You retreat to the first gate.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: regression
+      gate_3:
+        phase: gate
+        mode: gate_3
+        progress: 2
+        abstract_fields: {family: multi_gate, gate: 3}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: success
+            observation: The final gate opens. Task complete.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+            verifier_signals: {gate_progress: 1}
+          rattle_gate:
+            next_node: gate_3
+            observation: Rattling the third gate wastes time.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+          retreat:
+            next_node: gate_2
+            observation: You retreat to the second gate.
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: regression
+      blocked:
+        phase: trap
+        mode: blocked
+        progress: -1
+        abstract_fields: {family: multi_gate, gate: 0}
+        oracle_action: reset_gate
+        edges:
+          reset_gate:
+            next_node: start
+            observation: You reset the jammed gate.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: recovery
+            recovery: true
+            verifier_signals: {repair_quality: 1}
+          give_up:
+            next_node: failure
+            observation: You give up.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+            dead_end: true
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: multi_gate}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: multi_gate}, edges: {}}
+  - task_id: diag_cascade_train_01
+    split: train
+    instruction: Build evidence through three stages before committing to a final answer.
+    metadata:
+      family: cascade
+      pivotal_branch: gather_evidence
+      misleading_branch: guess
+    states:
+      start:
+        phase: gather
+        mode: stage_1
+        progress: 0
+        abstract_fields: {family: cascade, stage: 1}
+        oracle_action: gather_evidence
+        edges:
+          gather_evidence:
+            next_node: stage_2
+            observation: You gather the first piece of evidence.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: enabling
+            enabling: true
+            verifier_signals: {evidence_quality: 1}
+          guess:
+            next_node: failure
+            observation: Your guess is wrong without evidence.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: premature
+            dead_end: true
+          review_notes:
+            next_node: start
+            observation: Reviewing notes is plausible but finds nothing new.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+      stage_2:
+        phase: gather
+        mode: stage_2
+        progress: 1
+        abstract_fields: {family: cascade, stage: 2}
+        oracle_action: gather_evidence
+        edges:
+          gather_evidence:
+            next_node: stage_3
+            observation: You gather the second piece of evidence.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: enabling
+            enabling: true
+            verifier_signals: {evidence_quality: 1}
+          guess:
+            next_node: weak_answer
+            observation: Your guess is partially correct but incomplete.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: premature
+          review_notes:
+            next_node: stage_2
+            observation: Reviewing notes at this stage finds nothing.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+      stage_3:
+        phase: synthesize
+        mode: stage_3
+        progress: 2
+        abstract_fields: {family: cascade, stage: 3}
+        oracle_action: synthesize
+        edges:
+          synthesize:
+            next_node: success
+            observation: Full evidence yields the correct answer.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+            verifier_signals: {evidence_quality: 1}
+          guess:
+            next_node: weak_answer
+            observation: Guessing with partial evidence gives a weak answer.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: premature
+          review_notes:
+            next_node: stage_3
+            observation: Notes are already exhausted.
+            progress_delta: 0
+            state_delta: neutral
+            branch_label: stall
+      weak_answer:
+        phase: partial
+        mode: weak_answer
+        progress: 0
+        abstract_fields: {family: cascade, stage: 0}
+        oracle_action: revise
+        edges:
+          revise:
+            next_node: stage_2
+            observation: You revise your approach and return to gathering.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: recovery
+            recovery: true
+            verifier_signals: {repair_quality: 1}
+          submit_weak:
+            next_node: failure
+            observation: Submitting a weak answer fails.
+            terminal: true
+            progress_delta: -1
+            state_delta: regressed
+            branch_label: failure
+            dead_end: true
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: cascade}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: cascade}, edges: {}}
   - task_id: diag_dead_end_eval_01
     split: eval
     instruction: Identify the viable branch instead of committing too early.
@@ -353,6 +584,98 @@ tasks:
             branch_label: failure
       success: {phase: done, mode: success, progress: 3, abstract_fields: {family: recovery}, edges: {}}
       failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: recovery}, edges: {}}
+  - task_id: diag_multi_gate_eval_01
+    split: eval
+    instruction: Navigate through three sequential gates, avoiding stalls and jams.
+    metadata: {family: multi_gate, pivotal_branch: unlock_gate, misleading_branch: rattle_gate}
+    states:
+      start:
+        phase: gate
+        mode: gate_1
+        progress: 0
+        abstract_fields: {family: multi_gate, gate: 1}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: gate_2, observation: First gate opens., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {gate_progress: 1}}
+          rattle_gate: {next_node: start, observation: Rattling does nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          force_gate: {next_node: blocked, observation: Gate jams., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      gate_2:
+        phase: gate
+        mode: gate_2
+        progress: 1
+        abstract_fields: {family: multi_gate, gate: 2}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: gate_3, observation: Second gate opens., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {gate_progress: 1}}
+          rattle_gate: {next_node: gate_2, observation: Rattling is useless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: start, observation: Retreating to gate 1., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      gate_3:
+        phase: gate
+        mode: gate_3
+        progress: 2
+        abstract_fields: {family: multi_gate, gate: 3}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: success, observation: Final gate opens., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {gate_progress: 1}}
+          rattle_gate: {next_node: gate_3, observation: Rattling wastes time., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: gate_2, observation: Retreating to gate 2., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      blocked:
+        phase: trap
+        mode: blocked
+        progress: -1
+        abstract_fields: {family: multi_gate, gate: 0}
+        oracle_action: reset_gate
+        edges:
+          reset_gate: {next_node: start, observation: Gate reset., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {repair_quality: 1}}
+          give_up: {next_node: failure, observation: Giving up., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: multi_gate}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: multi_gate}, edges: {}}
+  - task_id: diag_cascade_eval_01
+    split: eval
+    instruction: Build evidence through three stages before committing to a final answer.
+    metadata: {family: cascade, pivotal_branch: gather_evidence, misleading_branch: guess}
+    states:
+      start:
+        phase: gather
+        mode: stage_1
+        progress: 0
+        abstract_fields: {family: cascade, stage: 1}
+        oracle_action: gather_evidence
+        edges:
+          gather_evidence: {next_node: stage_2, observation: First evidence gathered., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true, verifier_signals: {evidence_quality: 1}}
+          guess: {next_node: failure, observation: Guessing fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: premature, dead_end: true}
+          review_notes: {next_node: start, observation: Notes have nothing new., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      stage_2:
+        phase: gather
+        mode: stage_2
+        progress: 1
+        abstract_fields: {family: cascade, stage: 2}
+        oracle_action: gather_evidence
+        edges:
+          gather_evidence: {next_node: stage_3, observation: Second evidence gathered., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true, verifier_signals: {evidence_quality: 1}}
+          guess: {next_node: weak_answer, observation: Partial guess is incomplete., progress_delta: 0, state_delta: neutral, branch_label: premature}
+          review_notes: {next_node: stage_2, observation: Nothing new in notes., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      stage_3:
+        phase: synthesize
+        mode: stage_3
+        progress: 2
+        abstract_fields: {family: cascade, stage: 3}
+        oracle_action: synthesize
+        edges:
+          synthesize: {next_node: success, observation: Full evidence yields correct answer., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {evidence_quality: 1}}
+          guess: {next_node: weak_answer, observation: Guessing with partial evidence., progress_delta: 0, state_delta: neutral, branch_label: premature}
+          review_notes: {next_node: stage_3, observation: Notes exhausted., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      weak_answer:
+        phase: partial
+        mode: weak_answer
+        progress: 0
+        abstract_fields: {family: cascade, stage: 0}
+        oracle_action: revise
+        edges:
+          revise: {next_node: stage_2, observation: Revising approach., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {repair_quality: 1}}
+          submit_weak: {next_node: failure, observation: Weak answer fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: cascade}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: cascade}, edges: {}}
   - task_id: diag_smoke_01
     split: smoke
     instruction: Resolve a short dead-end smoke task.

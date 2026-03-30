@@ -23,47 +23,67 @@ TODO: describe the state graph, verifier events, offline scorers, and scored onl
 
 ## Results
 
-*Run group: `group_ccab88c727fd` — 3 seeds (7, 11, 19) × 6 conditions = 24 runs on diagnostic benchmark (train/eval splits, 20 rollouts per run, exploration_rate=0.5). Executed on GCP g2-standard-8 (NVIDIA L4, CUDA 12.8). Identical results reproduced locally (group_58677ce9bd4f).*
+*Run group: `group_71758879651a` — 3 seeds (7, 11, 19) × 6 conditions = 21 runs on diagnostic benchmark (5 train tasks, 5 eval tasks, 50 rollouts per run, exploration_rate=0.5). Table policy falls back to random action (not oracle) for unseen states, ensuring measured performance reflects learned policy quality.*
 
-*Benchmark: 3 train tasks (dead_end, enabling, recovery) × 3 eval tasks (dead_end_eval, enabling_eval, recovery_eval). State hashes shared between train and eval so trained models are directly applicable at test time. Collection policy uses a stateful RNG (seeded once per run) to ensure each rollout independently explores the action space.*
+*Benchmark families: dead_end, enabling, recovery, multi_gate (3 sequential gates with stall/jam actions), and cascade (3-stage evidence gathering with stall/premature-guess actions). Train and eval tasks share abstract state hashes so trained models are directly applicable at test time.*
 
 ### Success Rate by Condition
 
-| Condition | Mean Success | Avg Turns | Verifier Calls |
-|-----------|-------------|-----------|----------------|
-| prompted (baseline) | 0.683 | 2.42 | 95.7 |
-| outcome_only | 0.767 | 3.03 | 89.3 |
-| **branch_aware** | **1.000** | **2.10** | **80.0** |
-| **hindsight** | **1.000** | **2.10** | **80.0** |
-| **combined** | **1.000** | **2.10** | **80.0** |
-| combined_matched_budget | 1.000 | 2.10 | 80.0 |
+| Condition | Mean | Min | Max | Avg Turns | Verifier Calls |
+|-----------|------|-----|-----|-----------|----------------|
+| prompted (baseline) | 0.667 | 0.56 | 0.76 | 3.46 | 331.7 |
+| outcome_only | 0.467 | 0.40 | 0.60 | 6.40 | 396.7 |
+| branch_aware | 0.933 | 0.80 | 1.00 | 2.93 | 270.0 |
+| hindsight | 0.867 | 0.80 | 1.00 | 3.40 | 310.0 |
+| **combined** | **1.000** | **1.00** | **1.00** | **2.40** | **250.0** |
+| combined_matched_budget | 1.000 | 1.00 | 1.00 | 2.40 | 250.0 |
 
-Branch-aware, hindsight, and combined credit assignment all achieve **perfect success (1.000)** vs outcome_only (0.767) and prompted baseline (0.683). The gap between outcome_only and branch_aware (+0.233 absolute success) demonstrates that branch-label signals provide information that terminal outcomes alone cannot recover — specifically, the enabling-family state where `browse` has high terminal correlation but `collect_clue` is the correct pivotal action.
+**Key findings:**
 
-Branch-aware and hindsight scorers also reduce verifier calls (80.0 vs 89.3 for outcome_only, 95.7 for prompted) and average turns (2.10 vs 3.03 and 2.42), indicating the trained policies find shorter solution paths.
+1. **Outcome-only scoring is worse than the prompted baseline** (0.467 vs 0.667). Without oracle fallback, outcome_only's loop-action bias — rewarding stall actions (`browse`, `rattle_gate`, `review_notes`) that correlate with eventual success but waste turns — actively degrades performance.
 
-### Key Differentiator: Enabling Family
+2. **Branch-aware scoring recovers from this failure** (0.933 vs 0.467, +0.466 absolute). Branch-label signals (verifier scores for `pivotal`, penalties for `dead_end`) correctly rank pivotal actions above stall actions even when both appear in successful episodes.
 
-The critical test case is the enabling-family start state (shared hash across train/eval). The collection policy explores both `collect_clue` (oracle, enabling branch) and `browse` (stall) and `answer_now` (dead-end). Under outcome_only scoring, `browse` can accumulate success signal when it is followed by eventual success — leading the model to prefer `browse` over `collect_clue`. Branch-aware scoring penalises stall branches and rewards enabling signals directly, correctly ranking `collect_clue` highest. This is the mechanism that drives the +0.233 gap.
+3. **Hindsight scoring also recovers but less reliably** (0.867). Hindsight bonuses for pivotal/recovery branches help but are less discriminative than branch_aware's explicit dead-end penalties on multi-step tasks.
+
+4. **Combined scoring achieves perfect success** (1.000) by leveraging both branch-aware penalties and hindsight bonuses, eliminating all errors across all seeds and all 5 eval task families.
+
+5. **The scorers form a clear hierarchy**: combined (1.0) > branch_aware (0.93) > hindsight (0.87) > prompted (0.67) > outcome_only (0.47).
+
+### Exploration Rate Ablation
+
+The ranking is stable across exploration rates:
+
+| Condition | ER=0.3 | ER=0.5 | ER=0.7 |
+|-----------|--------|--------|--------|
+| prompted | 0.853 | 0.667 | 0.527 |
+| outcome_only | 0.533 | 0.467 | 0.667 |
+| branch_aware | 1.000 | 0.933 | 0.867 |
+| hindsight | 0.867 | 0.867 | 0.867 |
+| combined | 1.000 | 1.000 | 1.000 |
+
+The absolute numbers shift with exploration rate (higher exploration means more noise at collection time), but the condition ranking `combined >= branch_aware >= hindsight >> outcome_only` holds across all tested rates.
+
+### Key Mechanism: Loop-Action Bias
+
+The critical confound that branch-aware scoring corrects is **loop-action bias**: when a stall action (e.g., `browse`, `rattle_gate`, `review_notes`) loops back to the same state and the episode eventually succeeds via a different path, outcome_only scoring assigns the stall action the same score as the pivotal action. On multi-step tasks (multi_gate, cascade), this compounds — the model prefers stalling at every gate rather than progressing, resulting in long episodes that exhaust the turn budget.
+
+Branch-aware scoring directly penalises dead-end branches and rewards verifier signals (e.g., `gate_progress`, `evidence_quality`), breaking the tie and correctly ranking progressive actions above stalls.
 
 ### Budget Parity
 
-Rollout count matched across all conditions (20 per run). Token and turn variation reflects shorter solution paths found by trained policies, not budget inequality.
+Rollout count matched across all conditions (50 per run). Turn and verifier-call variation is an outcome of policy quality — better policies solve tasks in fewer turns.
 
 | Metric | Matched | Range |
 |--------|---------|-------|
-| rollout_count | **yes** | 20.0 |
-| avg_turns | no | 2.10–3.03 (trained shorter) |
-| verifier_calls | no | 80–96 (trained fewer) |
-
-### Branch Change Rate
-
-The prompted baseline shows mean branch change rate of 0.103, confirming the heuristic policy does not consistently find pivotal branches. Trained conditions show 0.0, indicating the trained table policy consistently selects the same branch choices seen during collection — the scorer differentiates which branches to prefer, not whether to explore.
+| rollout_count | **yes** | 50 |
+| avg_turns | no | 2.40–6.40 (combined shortest, outcome_only longest) |
+| verifier_calls | no | 250–397 (combined fewest) |
 
 ### Plots
 
-- Success by condition: `artifacts/paper/group_ccab88c727fd/success_by_condition.svg`
-- Branch change rate: `artifacts/paper/group_ccab88c727fd/change_rate.svg`
+- Success by condition: `artifacts/paper/group_71758879651a/success_by_condition.svg`
+- Change rate: `artifacts/paper/group_71758879651a/change_rate.svg`
 
 ## Failure Analysis
 
