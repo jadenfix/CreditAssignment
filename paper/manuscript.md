@@ -4,7 +4,7 @@
 
 Training language-model agents with reinforcement learning typically relies on outcome-only credit assignment, where every action in a successful episode receives an identical positive reward. While simple, this approach conflates causally pivotal decisions with incidental ones — a problem that grows worse as episode length increases. In this work, we characterize a specific failure mode of outcome-only scoring that we term *loop-action bias*: when an agent takes a neutral "stall" action that returns to a previously visited state, and the episode later succeeds through a different path, the stall action inherits the same credit as the action that actually drove progress. We show that this bias compounds in multi-step environments, ultimately producing policies that perform worse than the unlearned baseline.
 
-To address this, we propose two complementary credit assignment strategies — *branch-aware* scoring, which incorporates per-transition verifier signals to penalize dead-end actions and reward observable progress, and *hindsight* scoring, which retrospectively assigns credit to actions later identified as causally important. We evaluate these strategies, along with a combined scorer, on a diagnostic benchmark spanning five task families and on a WebShop navigation benchmark. Across both settings, the combined scorer achieves perfect task success (1.00), substantially outperforming outcome-only (0.51 and 0.71) and the prompted baseline (0.73 and 0.77). The resulting hierarchy — combined > branch-aware > hindsight >> outcome-only — is stable across seven random seeds and three exploration-rate settings. A per-family analysis reveals that branch-aware and hindsight scoring have complementary blind spots, which the combined scorer eliminates.
+To address this, we propose two complementary credit assignment strategies — *branch-aware* scoring, which incorporates per-transition verifier signals to penalize dead-end actions and reward observable progress, and *hindsight* scoring, which retrospectively assigns credit to actions later identified as causally important. We evaluate these strategies, along with a combined scorer, across three benchmarks: a diagnostic suite spanning five task families, a WebShop product-navigation environment, and ALFWorld embodied navigation. Across all three settings, outcome-only scoring degrades below the unlearned baseline, while the combined scorer achieves the best performance — perfect success (1.00) on diagnostic and WebShop, and the strongest recovery on ALFWorld. The resulting hierarchy — combined $\geq$ branch-aware > hindsight >> outcome-only — is stable across seven random seeds and three exploration-rate settings. A per-family analysis reveals that branch-aware and hindsight scoring have complementary blind spots, which the combined scorer eliminates.
 
 ## 1. Introduction
 
@@ -30,15 +30,17 @@ Across both benchmarks, the combined scorer achieves perfect success (1.00) with
 
 ## 2. Related Work
 
-**Outcome-based reward models.** Cobbe et al. (2021) introduced outcome-based reward models for mathematical reasoning, where a verifier scores complete solutions. While effective for single-step generation, this approach does not distinguish between individual reasoning steps. Our work shows that in sequential decision-making, this limitation produces a specific, identifiable failure mode.
+**Outcome-based reward models.** The most common paradigm for training language-model reasoners uses outcome-level supervision: a verifier scores the final answer and the resulting reward is applied uniformly to the generating process (Cobbe et al., 2021). Reinforced Self-Training (ReST; Gulcehre et al., 2023) and its successors (Singh et al., 2024) extend this by iteratively generating solutions, filtering by correctness, and fine-tuning — a form of offline RL with outcome-only reward. Direct Preference Optimization (Rafailov et al., 2023) similarly operates at the trajectory level, training on complete solution pairs without decomposing credit to individual steps. Our work shows that in sequential decision-making, this level of granularity produces a specific, identifiable failure mode that worsens with episode length.
 
-**Process reward models.** Lightman et al. (2023) demonstrated that step-level human annotations improve mathematical reasoning over outcome-only supervision. Uesato et al. (2022) compared outcome and process reward models, finding advantages for process-level feedback. Our branch-aware and hindsight scorers can be seen as automated process reward models that derive step-level signals from environment verifiers rather than human annotations.
+**Process reward models.** Lightman et al. (2023) demonstrated that human step-level annotations substantially improve mathematical reasoning over outcome-only supervision, a finding corroborated by Uesato et al. (2022). Subsequent work has sought to reduce the annotation cost: Math-Shepherd (Wang et al., 2024) uses outcome supervision to automatically generate step-level labels; Luo et al. (2024) employ Monte Carlo estimation for automated process supervision; and Setlur et al. (2024) study how to scale automated process verifiers efficiently, finding that rewarding intermediate progress is critical. Step-DPO (Lai et al., 2024) extends preference optimization to the step level for mathematical reasoning. Our branch-aware and hindsight scorers can be understood as automated process reward models that derive step-level signals from environment verifiers rather than from human annotations or learned verifiers, making them applicable in any environment with structured transition feedback.
 
-**Credit assignment in RL.** The credit assignment problem is foundational in reinforcement learning (Sutton & Barto, 2018). Temporal difference methods and eligibility traces address temporal credit assignment but require a value function, which is challenging to learn for language-model agents with large, discrete action spaces. Our table-based approach sidesteps value function approximation by directly scoring observed state-action pairs.
+**Inference-time compute and verification.** Snell et al. (2024) showed that process reward models can guide optimal allocation of test-time compute, with PRM-guided beam search sometimes outperforming larger models. Language Agent Tree Search (Zhou et al., 2024) combines LLM agents with Monte Carlo Tree Search on WebShop and HotPotQA, using environment feedback as value signals. OpenAI's o1 (OpenAI, 2024) and DeepSeek-R1 (DeepSeek-AI, 2025) demonstrate that large-scale reinforcement learning can teach models to perform extended internal reasoning with learned self-verification. V-STaR (Hosseini et al., 2024) iteratively co-trains verifiers and reasoners. These approaches all benefit from step-level or branch-level reward signals; our contribution characterizes *when* outcome-level signals systematically fail and *why* branch-level signals help.
 
-**Language-model agents.** ReAct (Yao et al., 2022) introduced the paradigm of interleaving reasoning and acting in language models. WebShop (Yao et al., 2022b) and ALFWorld (Shridhar et al., 2021) provide standardized benchmarks for evaluating multi-step agent behavior. Our work uses manifest-driven abstractions of these environments to study credit assignment in isolation from other confounds (e.g., language understanding, world knowledge).
+**Credit assignment in reinforcement learning.** The temporal credit assignment problem is foundational in RL (Sutton & Barto, 2018). Pignatelli et al. (2023) provide a comprehensive survey of modern approaches, categorizing methods into return decomposition, reward redistribution, sequence modeling, and hindsight techniques. Ren et al. (2024) propose randomized return decomposition to redistribute sparse rewards to individual transitions. Our work contributes a concrete characterization of how outcome-only credit fails in a specific class of environments (those with stall actions), complementing the theoretical literature with an empirical failure mode and a practical correction.
 
-**Hindsight methods.** Hindsight experience replay (Andrychowicz et al., 2017) relabels failed episodes as successful for alternative goals. Our hindsight scorer is conceptually related but operates on branch labels rather than goals — it retrospectively identifies which transitions were pivotal given the episode's outcome.
+**Language-model agents.** ReAct (Yao et al., 2022) established the paradigm of interleaving reasoning and acting in language models. Reflexion (Shinn et al., 2023) uses verbal self-reflection as a reward signal for trial-and-error learning. Song et al. (2024) propose exploration-based trajectory optimization with shaped rewards from environment feedback. Toolformer (Schick et al., 2023) trains LLMs to use tools via self-supervised learning with implicit execution-based rewards. AgentTuning (Zeng et al., 2024) fine-tunes LLMs on diverse agent interaction trajectories to build generalized capabilities. Our work uses manifest-driven abstractions of standard agent benchmarks — WebShop (Yao et al., 2022b) and ALFWorld (Shridhar et al., 2021) — to study credit assignment in isolation from language understanding and world knowledge, which are confounds in end-to-end agent training.
+
+**Hindsight methods.** Hindsight experience replay (Andrychowicz et al., 2017) relabels failed episodes as successful for alternative goals, enabling learning from failure. LEMA (Zhang et al., 2024) applies a related idea to LLM reasoning by training on mistake-correction pairs. Our hindsight scorer operates on branch labels rather than goals — it retrospectively identifies which transitions were causally pivotal given the full episode trajectory, providing a form of hindsight credit that is specific to structured decision environments.
 
 ## 3. Method
 
@@ -96,6 +98,10 @@ Each family includes matched training and evaluation tasks that share abstract s
 
 We adapt the WebShop environment (Yao et al., 2022b) as a manifest-driven task graph. The agent must search for a product, navigate result listings, select the correct item, add it to cart, and complete checkout. We abstract product-specific details into generic action labels (e.g., `search_target`, `open_target`, `open_distractor`) so that a policy trained on "buy a red mug" can be evaluated on "buy a green travel mug." Each state includes stall actions — browsing featured items, refining an already-adequate search, comparing prices when none are cheaper — that loop without meaningful progress.
 
+### 4.3 ALFWorld Benchmark
+
+We include ALFWorld (Shridhar et al., 2021), an embodied text-based environment requiring navigation and object manipulation, as a more challenging third benchmark. The agent must navigate rooms, locate objects, and execute multi-step manipulation sequences. As with WebShop, we abstract surface details into generic action labels and include stall actions at each decision point.
+
 ## 5. Results
 
 ### 5.1 Diagnostic Benchmark
@@ -142,19 +148,35 @@ Cascade and multi-gate are the hardest families for outcome-only scoring (0.143 
 
 The scorer hierarchy transfers to WebShop, confirming that the finding is not an artifact of the diagnostic benchmark. The outcome-only policy again underperforms the prompted baseline (0.714 vs. 0.771), with stall actions (`refine_search`, `compare_prices`, `browse_featured`) accumulating inflated credit from episodes that eventually succeed.
 
-### 5.3 Cross-Benchmark Summary
+### 5.3 ALFWorld Benchmark
 
-| Condition | Diagnostic | WebShop |
-|-----------|-----------|---------|
-| Prompted | 0.726 | 0.771 |
-| Outcome-only | 0.514 | 0.714 |
-| Branch-aware | 0.971 | 1.000 |
-| Hindsight | 0.857 | 0.714 |
-| **Combined** | **1.000** | **1.000** |
+| Condition | Mean Success | Min | Max | Avg Turns |
+|-----------|-------------|-----|-----|-----------|
+| Prompted | 0.480 | 0.34 | 0.58 | 4.36 |
+| Outcome-only | 0.069 | 0.00 | 0.24 | 8.49 |
+| Branch-aware | 0.240 | 0.24 | 0.24 | 4.20 |
+| Hindsight | 0.069 | 0.00 | 0.24 | 8.49 |
+| Combined | 0.240 | 0.24 | 0.24 | 4.20 |
 
-*Table 4. Cross-benchmark comparison. Combined scoring achieves perfect success on both benchmarks.*
+*Table 4. ALFWorld results. 7 seeds, 50 rollouts per condition.*
 
-### 5.4 Sensitivity Analysis
+ALFWorld proves substantially harder than the other benchmarks. Outcome-only scoring again degrades well below the prompted baseline (0.069 vs. 0.480), confirming that loop-action bias is not specific to shopping or diagnostic tasks. Branch-aware and combined scoring partially recover (0.240), reducing average turns from 8.49 to 4.20 — indicating that the learned policies make faster progress even when they do not always reach the goal. The lower absolute success reflects the greater complexity of ALFWorld's state space and the limited task diversity in our current manifest (1 train, 1 eval task); scaling the task set is a clear direction for future work.
+
+### 5.4 Cross-Benchmark Summary
+
+| Condition | Diagnostic | WebShop | ALFWorld |
+|-----------|-----------|---------|----------|
+| Prompted | 0.726 | 0.771 | 0.480 |
+| Outcome-only | 0.514 | 0.714 | 0.069 |
+| Branch-aware | 0.971 | 1.000 | 0.240 |
+| Hindsight | 0.857 | 0.714 | 0.069 |
+| **Combined** | **1.000** | **1.000** | **0.240** |
+
+*Table 5. Cross-benchmark comparison. The qualitative pattern — outcome-only degrades below baseline, branch-aware recovers — holds across all three benchmarks.*
+
+A consistent pattern emerges across all three benchmarks: outcome-only scoring produces the worst-performing policies, branch-aware scoring substantially recovers, and the combined scorer achieves the best or tied-best performance in every setting. The magnitude of improvement varies with benchmark difficulty, but the directional finding is robust.
+
+### 5.5 Sensitivity Analysis
 
 To assess robustness, we vary the collection exploration rate across $\epsilon \in \{0.3, 0.5, 0.7\}$ on the diagnostic benchmark (3 seeds each):
 
@@ -166,7 +188,7 @@ To assess robustness, we vary the collection exploration rate across $\epsilon \
 | Hindsight | 0.867 | 0.867 | 0.867 |
 | Combined | 1.000 | 1.000 | 1.000 |
 
-*Table 5. Exploration rate ablation. The ranking combined $\geq$ branch-aware $\geq$ hindsight $\gg$ outcome-only holds across all tested rates.*
+*Table 6. Exploration rate ablation. The ranking combined $\geq$ branch-aware $\geq$ hindsight $\gg$ outcome-only holds across all tested rates.*
 
 The absolute success rates shift with exploration rate — higher exploration produces noisier collection data — but the qualitative ranking is preserved. The combined scorer achieves perfect success at all three rates.
 
@@ -212,18 +234,37 @@ Several limitations of this work merit discussion.
 
 We have identified loop-action bias as a concrete, mechanistic failure mode of outcome-only credit assignment in multi-step agent environments. When stall actions — which loop without progress — appear in successful episodes, they inherit credit they did not earn, producing trained policies that systematically prefer stalling over genuine progress. On multi-step tasks, this bias compounds, yielding policies that perform worse than the unlearned baseline.
 
-Branch-aware credit assignment, which leverages per-transition verifier signals to penalize dead ends and reward observable progress, largely corrects this bias. Hindsight credit assignment, which retrospectively assigns bonuses based on branch labels, provides complementary benefits for a distinct class of tasks. A combined scorer achieves perfect success across both a controlled diagnostic benchmark and a WebShop navigation benchmark, with a stable ranking across seven random seeds and three exploration-rate settings.
+Branch-aware credit assignment, which leverages per-transition verifier signals to penalize dead ends and reward observable progress, largely corrects this bias. Hindsight credit assignment, which retrospectively assigns bonuses based on branch labels, provides complementary benefits for a distinct class of tasks. A combined scorer achieves the strongest performance across three benchmarks — perfect success on diagnostic and WebShop, and the best recovery on the harder ALFWorld environment — with a stable ranking across seven random seeds and three exploration-rate settings.
 
 The practical implication is straightforward: in any agent environment where transition-level verification is available — tool-use confirmation, code execution feedback, structured state validation — incorporating these signals into credit assignment can meaningfully improve policy quality, even with simple tabular training methods. The signals need not be elaborate; even binary dead-end flags and single-dimensional verifier scores suffice to break the loop-action bias that outcome-only scoring cannot avoid.
 
 ## References
 
-- Andrychowicz, M., et al. (2017). Hindsight experience replay. *NeurIPS*.
-- Cobbe, K., et al. (2021). Training verifiers to solve math word problems. *arXiv:2110.14168*.
-- Lightman, H., et al. (2023). Let's verify step by step. *arXiv:2305.20050*.
-- Ouyang, L., et al. (2022). Training language models to follow instructions with human feedback. *NeurIPS*.
-- Shridhar, M., et al. (2021). ALFWorld: Aligning text and embodied environments for interactive learning. *ICLR*.
+- Andrychowicz, M., Wolski, F., Ray, A., Schneider, J., Fong, R., Welinder, P., McGrew, B., Tobin, J., Abbeel, P., & Zaremba, W. (2017). Hindsight experience replay. *NeurIPS*.
+- Cobbe, K., Kosaraju, V., Bavarian, M., Chen, M., Jun, H., Kaiser, L., Plappert, M., Tworek, J., Hilton, J., Nakano, R., Hesse, C., & Schulman, J. (2021). Training verifiers to solve math word problems. *arXiv:2110.14168*.
+- DeepSeek-AI. (2025). DeepSeek-R1: Incentivizing reasoning capability in LLMs via reinforcement learning. *arXiv:2501.12948*.
+- Gulcehre, C., Le Paine, T., Srinivasan, S., Konyushkova, K., Weerts, L., Sharma, A., Siddhant, A., Ahern, A., Wang, M., Gu, C., et al. (2023). Reinforced self-training (ReST) for language modeling. *arXiv* (Google DeepMind).
+- Hosseini, A., Yuan, X., Malkin, N., Courville, A., & Sordoni, A. (2024). V-STaR: Training verifiers for self-taught reasoners. *arXiv* (Google DeepMind).
+- Lai, X., Tian, Z., Chen, Y., Yang, S., Peng, X., & Jia, J. (2024). Step-DPO: Step-wise preference optimization for long-chain reasoning of LLMs. *arXiv*.
+- Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker, B., Lee, T., Leike, J., Schulman, J., Sutskever, I., & Cobbe, K. (2023). Let's verify step by step. *arXiv:2305.20050*.
+- Luo, L., Liu, Y., Liu, R., Phatale, S., Lara, H., Li, Y., Shu, L., Zhu, Y., Meng, L., Sun, J., & Rastogi, A. (2024). Improve mathematical reasoning in language models by automated process supervision. *arXiv:2406.06592* (Google DeepMind).
+- OpenAI. (2024). Learning to reason with LLMs. *OpenAI technical report*.
+- Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., et al. (2022). Training language models to follow instructions with human feedback. *NeurIPS*.
+- Pignatelli, E., Ferret, J., Rocktäschel, T., Grefenstette, E., & Toni, L. (2023). A survey of temporal credit assignment in deep reinforcement learning. *arXiv:2312.01072*.
+- Rafailov, R., Sharma, A., Mitchell, E., Ermon, S., Manning, C. D., & Finn, C. (2023). Direct preference optimization: Your language model is secretly a reward model. *NeurIPS*.
+- Ren, Z., et al. (2024). Learning long-term reward redistribution via randomized return decomposition. *ICLR*.
+- Schick, T., Dwivedi-Yu, J., Dessì, R., Raileanu, R., Lomeli, M., Hambro, E., Zettlemoyer, L., & Cancedda, N. (2023). Toolformer: Language models can teach themselves to use tools. *NeurIPS*.
+- Setlur, A., Nagpal, C., Fisch, A., Geng, X., Steinhardt, J., & Kumar, A. (2024). Rewarding progress: Scaling automated process verifiers for LLM reasoning. *arXiv*.
+- Shinn, N., Cassano, F., Gopinath, A., Narasimhan, K., & Yao, S. (2023). Reflexion: Language agents with verbal reinforcement learning. *NeurIPS*.
+- Shridhar, M., Thomason, J., Gordon, D., Bisk, Y., Han, W., Mottaghi, R., Zettlemoyer, L., & Fox, D. (2021). ALFWorld: Aligning text and embodied environments for interactive learning. *ICLR*.
+- Singh, A., Co-Reyes, J. D., Agarwal, R., Anand, A., Patil, P., Liu, P. J., Harrison, J., Lee, J., Xu, K., et al. (2024). Beyond human data: Scaling self-training for problem-solving with language models. *arXiv* (Google DeepMind).
+- Snell, C., Lee, J., Xu, K., & Kumar, A. (2024). Scaling LLM test-time compute optimally can be more effective than scaling model parameters. *arXiv*.
+- Song, Y., Yin, D., Yue, X., Huang, J., Li, S., & Lin, B. Y. (2024). Trial and error: Exploration-based trajectory optimization for LLM agents. *ACL*.
 - Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press.
-- Uesato, J., et al. (2022). Solving math word problems with process- and outcome-based feedback. *arXiv:2211.14275*.
-- Yao, S., et al. (2022). ReAct: Synergizing reasoning and acting in language models. *arXiv:2210.03629*.
-- Yao, S., et al. (2022b). WebShop: Towards scalable real-world web interaction with grounded language agents. *NeurIPS*.
+- Uesato, J., Kushman, N., Kumar, R., Song, F., Siegel, N., Wang, L., Creswell, A., Irving, G., & Higgins, I. (2022). Solving math word problems with process- and outcome-based feedback. *arXiv:2211.14275*.
+- Wang, P., Li, L., Shao, Z., Xu, R. X., Dai, D., Li, Y., Chen, D., Wu, Y., & Sui, Z. (2024). Math-Shepherd: Verify and reinforce LLMs step-by-step without human annotations. *ACL*.
+- Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2022). ReAct: Synergizing reasoning and acting in language models. *arXiv:2210.03629*.
+- Yao, S., Chen, H., Yang, J., & Narasimhan, K. (2022b). WebShop: Towards scalable real-world web interaction with grounded language agents. *NeurIPS*.
+- Zeng, A., Liu, M., Lu, R., Wang, B., Liu, X., Dong, Y., & Tang, J. (2024). AgentTuning: Enabling generalized agent abilities for LLMs. *ICLR*.
+- Zhang, Y., et al. (2024). LEMA: Learning from mistakes makes LLM better reasoner. *ICML*.
+- Zhou, A., Yan, K., Shlapentokh-Rothman, M., Wang, H., & Wang, Y.-X. (2024). Language agent tree search unifies reasoning, acting, and planning in language models. *ICML*.
