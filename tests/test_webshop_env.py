@@ -6,8 +6,8 @@ def test_webshop_smoke_path_reaches_success():
     env = WebShopEnv()
     task = env.list_tasks("smoke")[0]
     state = env.reset(task)
-    state, _, _ = env.step(task, state, ActionEvent(action_id="a1", action_type="tool", content="search:red mug"))
-    state, _, _ = env.step(task, state, ActionEvent(action_id="a2", action_type="tool", content="open:red_mug"))
+    state, _, _ = env.step(task, state, ActionEvent(action_id="a1", action_type="tool", content="search_target"))
+    state, _, _ = env.step(task, state, ActionEvent(action_id="a2", action_type="tool", content="open_target"))
     state, _, _ = env.step(task, state, ActionEvent(action_id="a3", action_type="tool", content="add_to_cart"))
     final_state, observation, terminal = env.step(
         task,
