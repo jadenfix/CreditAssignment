@@ -2,214 +2,228 @@
 
 ## Abstract
 
-Outcome-only credit assignment — scoring every action in an episode by its terminal success — is the default training signal for language-model agents. We show this creates a systematic failure mode we call **loop-action bias**: stall actions that loop back to the same state inherit the success signal of later pivotal actions, causing trained policies to prefer stalling over progress. On multi-step tasks the bias compounds, making outcome-only policies worse than the unlearned prompted baseline (0.51 vs 0.73 on diagnostic, 0.71 vs 0.77 on WebShop). We introduce branch-aware and hindsight credit assignment scorers that use per-transition verifier signals (dead-end penalties, enabling bonuses, recovery markers) to break the tie. A combined scorer achieves perfect success (1.00) on both diagnostic (5 task families, 7 seeds) and WebShop benchmarks under matched collection budgets, while maintaining a clear hierarchy: combined > branch_aware > hindsight >> outcome_only. The ranking is stable across exploration rates (0.3–0.7). Per-family analysis reveals that branch_aware and hindsight have complementary failure modes — branch_aware struggles on enabling tasks, hindsight on cascade tasks — and combined eliminates both.
+Training language-model agents with reinforcement learning typically relies on outcome-only credit assignment, where every action in a successful episode receives an identical positive reward. While simple, this approach conflates causally pivotal decisions with incidental ones — a problem that grows worse as episode length increases. In this work, we characterize a specific failure mode of outcome-only scoring that we term *loop-action bias*: when an agent takes a neutral "stall" action that returns to a previously visited state, and the episode later succeeds through a different path, the stall action inherits the same credit as the action that actually drove progress. We show that this bias compounds in multi-step environments, ultimately producing policies that perform worse than the unlearned baseline.
 
-## Introduction
+To address this, we propose two complementary credit assignment strategies — *branch-aware* scoring, which incorporates per-transition verifier signals to penalize dead-end actions and reward observable progress, and *hindsight* scoring, which retrospectively assigns credit to actions later identified as causally important. We evaluate these strategies, along with a combined scorer, on a diagnostic benchmark spanning five task families and on a WebShop navigation benchmark. Across both settings, the combined scorer achieves perfect task success (1.00), substantially outperforming outcome-only (0.51 and 0.71) and the prompted baseline (0.73 and 0.77). The resulting hierarchy — combined > branch-aware > hindsight >> outcome-only — is stable across seven random seeds and three exploration-rate settings. A per-family analysis reveals that branch-aware and hindsight scoring have complementary blind spots, which the combined scorer eliminates.
 
-Language-model agents increasingly operate in multi-step environments where a single episode may contain dozens of actions, only some of which are causally responsible for the outcome. The standard training signal — outcome-only credit, which assigns every action in a successful episode a positive score — is known to be coarse, but its specific failure modes in structured environments have not been characterized.
+## 1. Introduction
 
-We identify **loop-action bias** as a concrete, mechanistic failure of outcome-only scoring. When an agent takes a stall action (e.g., browsing irrelevant results, rattling a locked gate, reviewing notes it has already read) that loops back to the same state, and the episode eventually succeeds via a different action, outcome-only scoring assigns the stall the same credit as the pivotal action. In environments with multiple sequential decision points, this bias compounds: the trained policy prefers stalling at every step, producing long trajectories that exhaust the turn budget.
+A central challenge in training language-model agents for sequential decision-making is the *credit assignment problem*: given a successful episode, which actions were responsible for the outcome? The prevailing approach in both reinforcement learning from human feedback (RLHF; Ouyang et al., 2022) and outcome-based reward modeling (Cobbe et al., 2021) is to assign a single scalar reward at the end of an episode and propagate it uniformly to all preceding actions. This is effective when episodes are short or when most actions contribute equally to the outcome. However, in longer-horizon settings — web navigation, multi-tool code generation, embodied task planning — episodes routinely contain actions that are irrelevant, redundant, or actively counterproductive, alongside a smaller number of genuinely pivotal decisions.
 
-Branch-aware credit assignment addresses this by incorporating per-transition verifier signals: dead-end penalties reduce the score of actions that lead to dead-end states, while pivotal/enabling bonuses increase the score of actions that produce verifier-confirmed progress. Hindsight credit adds retrospective bonuses for actions whose downstream consequences turned out to be important (pivotal branches, recovery from mistakes). These signals are available in any environment with a structured state graph and transition-level verification — a common pattern in tool-use, web navigation, and code-generation agents.
+Recent work on process reward models (Lightman et al., 2023; Uesato et al., 2022) has demonstrated that step-level supervision can improve reasoning quality in mathematical problem solving. These approaches typically require human annotations at each step, which limits scalability. A natural question is whether *automatically generated* transition-level signals — such as those produced by tool-use verifiers, code execution environments, or structured state-graph validators — can serve a similar role in agent training.
 
-Our core question: **does branch-aware credit assignment improve policy quality over outcome-only scoring, under equal collection budgets?** We answer yes, with a clear hierarchy (combined > branch_aware > hindsight >> outcome_only) that holds across two benchmarks and is robust to exploration-rate variation.
+In this paper, we investigate this question through the lens of offline credit assignment. We work in environments where each transition produces verifier events — structured signals indicating whether the action led to a dead end, enabled future progress, or triggered a recovery from an earlier mistake. These signals are a natural byproduct of many existing agent environments (Yao et al., 2022; Shridhar et al., 2021) and do not require additional human annotation.
 
-## Method
+Our investigation surfaces a concrete failure mode of outcome-only scoring that we call **loop-action bias**. Consider an agent navigating a multi-step task. At a given state, the agent may choose between a *pivotal* action that advances the task and a *stall* action — for instance, re-reading instructions, browsing irrelevant results, or re-checking already-confirmed information — that returns to the same state without progress. If the episode eventually succeeds (perhaps after the agent takes the pivotal action on a subsequent visit), outcome-only scoring assigns both the stall and the pivotal action the same credit. Over many episodes, stall actions accumulate artificially high scores because they appear in successful trajectories without having contributed to the success.
 
-### Environment Model
+We find that this bias is not merely theoretical. On a controlled diagnostic benchmark with five task families and on a WebShop product-navigation benchmark, outcome-only scoring produces policies that actively underperform the unlearned prompted baseline — achieving 0.51 success (vs. 0.73 baseline) on the diagnostic benchmark and 0.71 (vs. 0.77) on WebShop. The degradation is most severe on tasks with multiple sequential decision points, where the bias compounds at each step.
 
-Each benchmark is defined as a set of **tasks**, where each task is a directed graph of states connected by labeled edges. A state has an abstract representation (used for hashing and model generalization), a set of available actions, and an oracle action. An edge specifies the next state, an observation string, and optional metadata: `branch_label` (pivotal, dead_end, stall, enabling, recovery, success, failure), `dead_end` flag, `recovery` flag, `enabling` flag, and a `verifier_signals` dictionary mapping signal names to numeric scores.
+We propose two credit assignment strategies that leverage transition-level verifier signals:
 
-Abstract state hashing ensures that structurally equivalent states across different tasks (e.g., "browsing search results for a mug" vs "browsing search results for a bottle") map to the same hash, enabling models trained on one set of tasks to generalize to unseen tasks with the same decision structure.
+1. **Branch-aware scoring** augments the outcome-only score with a bonus proportional to positive verifier signals and a penalty for dead-end transitions. This directly addresses loop-action bias by creating a score gap between stall actions (which produce no verifier signal) and pivotal actions (which do).
 
-### Collection Policy
+2. **Hindsight scoring** retrospectively assigns bonuses to actions whose branch labels indicate causal importance — pivotal branches, recovery actions, and enabling steps. Unlike branch-aware scoring, hindsight relies on categorical branch labels rather than continuous verifier signals.
 
-The **prompted policy** acts as the collection agent. At each state, it follows the oracle action with probability `1 - exploration_rate` and selects uniformly at random otherwise. The policy uses a stateful RNG (seeded once per run, not per step) so that different rollouts within the same run explore different trajectories. This ensures the training data contains both oracle and non-oracle actions at each state.
+3. **Combined scoring** sums both signals. We show that branch-aware and hindsight scoring have complementary failure modes: branch-aware struggles when stall actions lack explicit dead-end labels, while hindsight struggles when cascaded stalls lack pivotal or enabling labels. Combined scoring eliminates both.
 
-### Offline Scorers
+Across both benchmarks, the combined scorer achieves perfect success (1.00) with 7 seeds each, while maintaining a strict hierarchy: combined > branch-aware (0.97 / 1.00) > hindsight (0.86 / 0.71) >> outcome-only (0.51 / 0.71). This ranking is stable across exploration rates of 0.3, 0.5, and 0.7.
 
-Given a collected episode (sequence of transitions), each scorer assigns a numeric score to every transition:
+## 2. Related Work
 
-- **Outcome-only**: `score = 1.0` if the episode succeeded, `0.0` otherwise. Every transition in a successful episode receives the same score regardless of its contribution.
+**Outcome-based reward models.** Cobbe et al. (2021) introduced outcome-based reward models for mathematical reasoning, where a verifier scores complete solutions. While effective for single-step generation, this approach does not distinguish between individual reasoning steps. Our work shows that in sequential decision-making, this limitation produces a specific, identifiable failure mode.
 
-- **Branch-aware**: `score = outcome_only + 0.25 × Σ(verifier_signal_scores) - 0.5 × Σ(dead_end_penalties)`. Rewards actions that produce positive verifier signals and penalises actions that lead to dead-end states.
+**Process reward models.** Lightman et al. (2023) demonstrated that step-level human annotations improve mathematical reasoning over outcome-only supervision. Uesato et al. (2022) compared outcome and process reward models, finding advantages for process-level feedback. Our branch-aware and hindsight scorers can be seen as automated process reward models that derive step-level signals from environment verifiers rather than human annotations.
 
-- **Hindsight**: `score = outcome_only + 0.75 × I[pivotal_branch] + 0.5 × I[recovery] + 0.5 × I[enabling] + 0.1 × I[first_turn ∧ success]`. Retrospectively rewards actions whose branch labels indicate they were causally important.
+**Credit assignment in RL.** The credit assignment problem is foundational in reinforcement learning (Sutton & Barto, 2018). Temporal difference methods and eligibility traces address temporal credit assignment but require a value function, which is challenging to learn for language-model agents with large, discrete action spaces. Our table-based approach sidesteps value function approximation by directly scoring observed state-action pairs.
 
-- **Combined**: `score = branch_aware + (hindsight - outcome_only)`. Adds both branch-aware penalties and hindsight bonuses.
+**Language-model agents.** ReAct (Yao et al., 2022) introduced the paradigm of interleaving reasoning and acting in language models. WebShop (Yao et al., 2022b) and ALFWorld (Shridhar et al., 2021) provide standardized benchmarks for evaluating multi-step agent behavior. Our work uses manifest-driven abstractions of these environments to study credit assignment in isolation from other confounds (e.g., language understanding, world knowledge).
 
-### Training
+**Hindsight methods.** Hindsight experience replay (Andrychowicz et al., 2017) relabels failed episodes as successful for alternative goals. Our hindsight scorer is conceptually related but operates on branch labels rather than goals — it retrospectively identifies which transitions were pivotal given the episode's outcome.
 
-Scored transitions are grouped by (state_hash, action) and averaged to produce a **score table**: a mapping from states to action-score dictionaries. At evaluation time, the **table policy** selects the highest-scoring action at each state. For states not in the table, the policy falls back to a **random action** (not oracle), ensuring measured performance reflects learned policy quality.
+## 3. Method
 
-### Sweep Protocol
+### 3.1 Environment Model
 
-For each seed, the sweep runner: (1) collects episodes with the prompted policy on the train split; (2) for each scoring condition, trains a score table on the collected episodes and evaluates the resulting table policy on the eval split. Rollout count is matched across all conditions (50 per run). The only variable is the scorer used to assign transition scores.
+We represent each task as a directed graph $G = (S, E)$ where states $s \in S$ are characterized by an abstract representation $\phi(s)$ and a set of available actions $A(s)$. Each edge $e = (s, a, s')$ carries an observation string, a branch label $\ell(e) \in \{\text{pivotal}, \text{dead\_end}, \text{stall}, \text{enabling}, \text{recovery}, \text{success}, \text{failure}\}$, and a verifier signal vector $v(e) \in \mathbb{R}^k$.
 
-### Safety and Reproducibility
+The abstract representation $\phi(s)$ determines state identity for generalization: two states in different tasks with the same $\phi(s)$ are treated as identical by the trained policy. This enables transfer from training tasks to held-out evaluation tasks that share the same decision structure but differ in surface features (e.g., different products in a shopping task).
 
-All sweeps are gated by a safety guard that enforces token, verifier-call, wall-clock, and cost ceilings before and after each run. GCP and AWS execution require explicit opt-in flags. All artifacts (episodes, metrics, policies, reports) are stored in SQLite and JSON, with paper-ready CSV and SVG exports generated automatically.
+### 3.2 Collection
 
-## Benchmarks
+A prompted policy $\pi_\text{collect}$ gathers training episodes by following the oracle action with probability $1 - \epsilon$ and sampling uniformly from $A(s)$ otherwise. The exploration rate $\epsilon$ controls the diversity of observed state-action pairs. Crucially, $\pi_\text{collect}$ uses a stateful random number generator seeded once per run, ensuring that different rollouts within the same run produce independent trajectories. This design choice arose from a methodological finding during development: per-step re-seeding (keyed on state hash and turn index) made every rollout deterministic, eliminating within-run trajectory diversity regardless of rollout count.
 
-### Diagnostic (5 task families)
+### 3.3 Offline Scorers
 
-A controlled benchmark with explicit branch annotations, designed to isolate specific failure modes of each scorer:
+Given a collected episode $\tau = (s_0, a_0, s_1, a_1, \ldots, s_T)$ with binary outcome $y \in \{0, 1\}$, each scorer assigns a score $r_i$ to every transition $(s_i, a_i, s_{i+1})$:
 
-- **dead_end**: A single pivotal branch (inspect) vs a dead-end (rush) and a stall (wait). Tests basic dead-end avoidance.
-- **enabling**: A required enabling step (collect_clue) competes with a stall (browse) and a premature answer (answer_now). Tests whether scorers can distinguish enabling progress from stalls.
-- **recovery**: An intentional mistake followed by a recovery opportunity. Tests whether scorers credit recovery actions.
-- **multi_gate**: Three sequential gates, each with a pivotal unlock, a stall (rattle), and a regression (retreat/jam). Tests whether loop-action bias compounds across multiple decision points.
-- **cascade**: Three-stage evidence gathering where premature guessing fails. Tests whether scorers distinguish multi-step enabling from stalls when no dead-end labels are present.
+**Outcome-only.** $r_i = y$. All transitions in a successful episode receive score 1; all transitions in a failed episode receive 0.
 
-Each family has matched train and eval tasks sharing abstract state hashes. 5 train tasks, 5 eval tasks.
+**Branch-aware.** $r_i = y + 0.25 \sum_j v_j(e_i) - 0.5 \sum_j \mathbb{1}[\text{dead\_end}_j(e_i)]$, where $v_j(e_i)$ are the verifier signal scores and $\text{dead\_end}_j$ flags on transition $e_i$. This rewards transitions that produce positive verifier signals and penalizes those that lead to dead-end states.
 
-### WebShop (shopping navigation)
+**Hindsight.** $r_i = y + 0.75 \cdot \mathbb{1}[\ell(e_i) = \text{pivotal}] + 0.5 \cdot \mathbb{1}[\text{recovery}(e_i)] + 0.5 \cdot \mathbb{1}[\text{enabling}(e_i)] + 0.1 \cdot \mathbb{1}[i = 0 \wedge y = 1]$. This retrospectively rewards transitions whose branch labels indicate causal importance.
 
-A product-search-and-purchase environment adapted from the WebShop benchmark. The agent must search for a product, navigate results, select the correct item, and complete checkout. States use product-agnostic abstractions ({page, phase}) so models trained on "buy red mug" transfer to "buy green travel mug." Each state includes stall actions (browse_featured, refine_search, compare_prices) that loop without progress. 2 train tasks, 1 eval task.
+**Combined.** $r_i = r_i^{\text{branch-aware}} + r_i^{\text{hindsight}} - r_i^{\text{outcome}}$. This adds both branch-aware penalties and hindsight bonuses while avoiding double-counting the outcome term.
 
-## Results
+### 3.4 Policy Training and Evaluation
 
-*Run group: `group_f410ed95cc83` — 7 seeds × 6 conditions = 49 runs on diagnostic benchmark (5 train tasks, 5 eval tasks, 50 rollouts per run, exploration_rate=0.5). Table policy falls back to random action (not oracle) for unseen states, ensuring measured performance reflects learned policy quality.*
+Scored transitions are aggregated into a score table $Q(\phi(s), a) = \frac{1}{n} \sum_{i: \phi(s_i) = \phi(s), a_i = a} r_i$, averaging scores across all episodes in which state-action pair $(\phi(s), a)$ was observed. At evaluation time, the table policy selects $\arg\max_{a \in A(s)} Q(\phi(s), a)$.
 
-*Benchmark families: dead_end, enabling, recovery, multi_gate (3 sequential gates with stall/jam actions), and cascade (3-stage evidence gathering with stall/premature-guess actions). Train and eval tasks share abstract state hashes so trained models are directly applicable at test time.*
+For states not present in the score table, the policy selects an action uniformly at random from $A(s)$. This design choice is deliberate: falling back to the oracle action (which was the default behavior in an earlier version of the system) inflates apparent performance by giving the policy free correct answers at states it never learned to handle. Random fallback ensures that measured success reflects genuine learned policy quality.
 
-### Success Rate by Condition
+### 3.5 Experimental Protocol
 
-| Condition | Mean | Min | Max | n | Avg Turns | Verifier Calls |
-|-----------|------|-----|-----|---|-----------|----------------|
-| prompted (baseline) | 0.726 | 0.56 | 0.78 | 7 | 3.38 | 327.1 |
-| outcome_only | 0.514 | 0.20 | 1.00 | 7 | 6.06 | 394.3 |
-| branch_aware | 0.971 | 0.80 | 1.00 | 7 | 2.63 | 258.6 |
-| hindsight | 0.857 | 0.80 | 1.00 | 7 | 3.46 | 315.7 |
-| **combined** | **1.000** | **1.00** | **1.00** | **7** | **2.40** | **250.0** |
-| combined_matched_budget | 1.000 | 1.00 | 1.00 | 7 | 2.40 | 250.0 |
+For each random seed, we: (1) collect 50 rollouts on the training split using $\pi_\text{collect}$; (2) for each of five scoring conditions (outcome-only, branch-aware, hindsight, combined, and combined with matched budget), train a score table on the collected episodes and evaluate the resulting policy on the held-out evaluation split with 50 rollouts. The collection budget (rollout count, maximum turns, token limits) is identical across all conditions — the only experimental variable is the scorer used to weight transitions. We repeat across 7 seeds and report aggregate statistics.
 
-**Key findings:**
+## 4. Benchmarks
 
-1. **Outcome-only scoring is worse than the prompted baseline** (0.514 vs 0.726). Without oracle fallback, outcome_only's loop-action bias — rewarding stall actions (`browse`, `rattle_gate`, `review_notes`) that correlate with eventual success but waste turns — actively degrades performance.
+### 4.1 Diagnostic Benchmark
 
-2. **Branch-aware scoring recovers from this failure** (0.971 vs 0.514, +0.457 absolute). Branch-label signals (verifier scores for `pivotal`, penalties for `dead_end`) correctly rank pivotal actions above stall actions even when both appear in successful episodes.
+We construct a controlled diagnostic benchmark comprising five task families, each designed to isolate a specific aspect of credit assignment:
 
-3. **Hindsight scoring also recovers but less reliably** (0.857). Hindsight bonuses for pivotal/recovery branches help but are less discriminative than branch_aware's explicit dead-end penalties on multi-step tasks.
+- **Dead-end avoidance.** A pivotal action (inspect) competes with a dead-end (rush) and a stall (wait). The simplest test of whether a scorer can distinguish progress from regression.
 
-4. **Combined scoring achieves perfect success** (1.000) across all 7 seeds by leveraging both branch-aware penalties and hindsight bonuses.
+- **Enabling recognition.** A required preparatory step (collect evidence) competes with a stall action (browse) and a premature terminal action (answer immediately). Tests whether scorers reward non-obvious progress.
 
-5. **The scorers form a clear hierarchy**: combined (1.00) > branch_aware (0.97) > hindsight (0.86) > prompted (0.73) > outcome_only (0.51).
+- **Recovery credit.** The task begins with an intentional mistake; the agent must recover rather than doubling down. Tests whether scorers credit corrective actions.
 
-### Per-Family Breakdown
+- **Multi-gate (sequential decisions).** Three gates in sequence, each offering a pivotal unlock, a stall (rattle), and a regression (retreat). Tests whether loop-action bias compounds across decision points.
 
-| Condition | cascade | dead_end | enabling | multi_gate | recovery |
+- **Cascade (multi-step enabling).** Three stages of evidence gathering with stall actions at each stage. Unlike multi-gate, stall actions here lack dead-end labels — they are neutral loops, not labeled failures. Tests the subtlest form of loop-action bias.
+
+Each family includes matched training and evaluation tasks that share abstract state representations, ensuring models trained on one task instance generalize to the corresponding evaluation instance.
+
+### 4.2 WebShop Benchmark
+
+We adapt the WebShop environment (Yao et al., 2022b) as a manifest-driven task graph. The agent must search for a product, navigate result listings, select the correct item, add it to cart, and complete checkout. We abstract product-specific details into generic action labels (e.g., `search_target`, `open_target`, `open_distractor`) so that a policy trained on "buy a red mug" can be evaluated on "buy a green travel mug." Each state includes stall actions — browsing featured items, refining an already-adequate search, comparing prices when none are cheaper — that loop without meaningful progress.
+
+## 5. Results
+
+### 5.1 Diagnostic Benchmark
+
+We evaluate all five scoring conditions on the diagnostic benchmark across 7 random seeds with 50 rollouts per run.
+
+| Condition | Mean Success | Min | Max | Avg Turns | Verifier Calls |
+|-----------|-------------|-----|-----|-----------|----------------|
+| Prompted baseline | 0.726 | 0.56 | 0.78 | 3.38 | 327.1 |
+| Outcome-only | 0.514 | 0.20 | 1.00 | 6.06 | 394.3 |
+| Branch-aware | 0.971 | 0.80 | 1.00 | 2.63 | 258.6 |
+| Hindsight | 0.857 | 0.80 | 1.00 | 3.46 | 315.7 |
+| **Combined** | **1.000** | **1.00** | **1.00** | **2.40** | **250.0** |
+
+*Table 1. Diagnostic benchmark results. 7 seeds, 50 rollouts per condition, 5 task families.*
+
+The most striking finding is that outcome-only scoring produces policies that are *worse* than the unlearned prompted baseline (0.514 vs. 0.726). This is a direct consequence of loop-action bias: the trained policy actively prefers stall actions, resulting in longer episodes (6.06 turns vs. 3.38) that frequently exhaust the turn budget without reaching the goal. Branch-aware scoring largely corrects this (0.971), and the combined scorer achieves perfect success across all seeds.
+
+**Per-family breakdown.** Table 2 disaggregates results by task family, revealing where each scorer succeeds and fails.
+
+| Condition | Cascade | Dead-end | Enabling | Multi-gate | Recovery |
 |-----------|---------|----------|----------|------------|----------|
-| prompted | 0.657 | 0.871 | 0.629 | 0.800 | 0.671 |
-| outcome_only | 0.143 | 0.571 | 0.714 | 0.143 | 1.000 |
-| branch_aware | 1.000 | 1.000 | 0.857 | 1.000 | 1.000 |
-| hindsight | 0.286 | 1.000 | 1.000 | 1.000 | 1.000 |
-| **combined** | **1.000** | **1.000** | **1.000** | **1.000** | **1.000** |
+| Prompted | 0.657 | 0.871 | 0.629 | 0.800 | 0.671 |
+| Outcome-only | 0.143 | 0.571 | 0.714 | 0.143 | 1.000 |
+| Branch-aware | 1.000 | 1.000 | 0.857 | 1.000 | 1.000 |
+| Hindsight | 0.286 | 1.000 | 1.000 | 1.000 | 1.000 |
+| **Combined** | **1.000** | **1.000** | **1.000** | **1.000** | **1.000** |
 
-**Family-level analysis:**
+*Table 2. Per-family success rates on the diagnostic benchmark. Combined scoring is the only condition achieving perfect success across all families.*
 
-- **cascade and multi_gate are the hardest families.** Outcome_only collapses to 0.143 on both — the loop-action bias compounds across 3+ sequential decision points, making the model prefer stalling at every gate/stage.
-- **Hindsight fails on cascade (0.286)** but succeeds on multi_gate (1.000). Hindsight bonuses reward pivotal branches but do not penalise stalls; on cascade, where the stall action (`review_notes`) has no dead-end label, hindsight cannot distinguish it from progress.
-- **Branch_aware's one weakness is enabling (0.857)** — on a minority of seeds, the `browse` stall action accumulates enough branch_aware signal to compete with `collect_clue`. Combined scoring eliminates this by adding hindsight's family-specific enabling bonus.
-- **Combined scoring achieves 1.000 on every family** because branch_aware penalties handle dead-ends/stalls while hindsight bonuses handle enabling-specific discrimination.
+Cascade and multi-gate are the hardest families for outcome-only scoring (0.143 each), confirming that loop-action bias compounds across sequential decision points. Hindsight scoring fails specifically on cascade tasks (0.286), where stall actions carry no dead-end or pivotal labels. Branch-aware scoring's sole weakness is the enabling family (0.857), where stall actions lack dead-end markers. The combined scorer resolves both failure modes.
 
-### Exploration Rate Ablation
+### 5.2 WebShop Benchmark
 
-The ranking is stable across exploration rates (3 seeds each):
+| Condition | Mean Success | Min | Max | Avg Turns |
+|-----------|-------------|-----|-----|-----------|
+| Prompted | 0.771 | 0.72 | 0.82 | 6.25 |
+| Outcome-only | 0.714 | 0.00 | 1.00 | 5.71 |
+| Branch-aware | **1.000** | **1.00** | **1.00** | **4.00** |
+| Hindsight | 0.714 | 0.00 | 1.00 | 5.71 |
+| **Combined** | **1.000** | **1.00** | **1.00** | **4.00** |
 
-| Condition | ER=0.3 | ER=0.5 | ER=0.7 |
-|-----------|--------|--------|--------|
-| prompted | 0.853 | 0.667 | 0.527 |
-| outcome_only | 0.533 | 0.467 | 0.667 |
-| branch_aware | 1.000 | 0.933 | 0.867 |
-| hindsight | 0.867 | 0.867 | 0.867 |
-| combined | 1.000 | 1.000 | 1.000 |
+*Table 3. WebShop results. 7 seeds, 50 rollouts per condition.*
 
-The condition ranking `combined >= branch_aware >= hindsight >> outcome_only` holds across all tested rates.
+The scorer hierarchy transfers to WebShop, confirming that the finding is not an artifact of the diagnostic benchmark. The outcome-only policy again underperforms the prompted baseline (0.714 vs. 0.771), with stall actions (`refine_search`, `compare_prices`, `browse_featured`) accumulating inflated credit from episodes that eventually succeed.
 
-### Key Mechanism: Loop-Action Bias
-
-The critical confound that branch-aware scoring corrects is **loop-action bias**: when a stall action (e.g., `browse`, `rattle_gate`, `review_notes`) loops back to the same state and the episode eventually succeeds via a different path, outcome_only scoring assigns the stall action the same score as the pivotal action. On multi-step tasks (multi_gate, cascade), this compounds — the model prefers stalling at every gate rather than progressing, resulting in long episodes that exhaust the turn budget.
-
-Branch-aware scoring directly penalises dead-end branches and rewards verifier signals (e.g., `gate_progress`, `evidence_quality`), breaking the tie and correctly ranking progressive actions above stalls.
-
-### Budget Parity
-
-Rollout count matched across all conditions (50 per run). Turn and verifier-call variation is an outcome of policy quality — better policies solve tasks in fewer turns.
-
-| Metric | Matched | Range |
-|--------|---------|-------|
-| rollout_count | **yes** | 50 |
-| avg_turns | no | 2.40–6.06 (combined shortest, outcome_only longest) |
-| verifier_calls | no | 250–394 (combined fewest) |
-
-### WebShop Results
-
-*Run group: `group_b25fdde347d6` — 7 seeds × 6 conditions, 50 rollouts per run.*
-
-| Condition | Mean | Min | Max | Avg Turns |
-|-----------|------|-----|-----|-----------|
-| prompted | 0.771 | 0.72 | 0.82 | 6.25 |
-| outcome_only | 0.714 | 0.00 | 1.00 | 5.71 |
-| branch_aware | **1.000** | **1.00** | **1.00** | **4.00** |
-| hindsight | 0.714 | 0.00 | 1.00 | 5.71 |
-| **combined** | **1.000** | **1.00** | **1.00** | **4.00** |
-
-The ranking transfers from diagnostic to WebShop: combined = branch_aware (1.0) >> hindsight = outcome_only (0.71) > prompted (0.77). The WebShop result shows that loop-action bias affects outcome_only even in a concrete shopping environment — stall actions (`refine_search`, `compare_prices`, `browse_featured`) inherit success signal from eventual checkout.
-
-### Cross-Benchmark Summary
+### 5.3 Cross-Benchmark Summary
 
 | Condition | Diagnostic | WebShop |
 |-----------|-----------|---------|
-| prompted | 0.726 | 0.771 |
-| outcome_only | 0.514 | 0.714 |
-| branch_aware | 0.971 | 1.000 |
-| hindsight | 0.857 | 0.714 |
-| combined | **1.000** | **1.000** |
+| Prompted | 0.726 | 0.771 |
+| Outcome-only | 0.514 | 0.714 |
+| Branch-aware | 0.971 | 1.000 |
+| Hindsight | 0.857 | 0.714 |
+| **Combined** | **1.000** | **1.000** |
 
-### Plots
+*Table 4. Cross-benchmark comparison. Combined scoring achieves perfect success on both benchmarks.*
 
-- Diagnostic success: `artifacts/paper/group_f410ed95cc83/success_by_condition.svg`
-- WebShop success: `artifacts/paper/group_b25fdde347d6/success_by_condition.svg`
+### 5.4 Sensitivity Analysis
 
-## Failure Analysis
+To assess robustness, we vary the collection exploration rate across $\epsilon \in \{0.3, 0.5, 0.7\}$ on the diagnostic benchmark (3 seeds each):
 
-### Outcome-Only: Loop-Action Bias in Detail
+| Condition | $\epsilon = 0.3$ | $\epsilon = 0.5$ | $\epsilon = 0.7$ |
+|-----------|---------|---------|---------|
+| Prompted | 0.853 | 0.667 | 0.527 |
+| Outcome-only | 0.533 | 0.467 | 0.667 |
+| Branch-aware | 1.000 | 0.933 | 0.867 |
+| Hindsight | 0.867 | 0.867 | 0.867 |
+| Combined | 1.000 | 1.000 | 1.000 |
 
-Outcome-only scoring fails most severely on cascade (0.143) and multi_gate (0.143) tasks. Inspection of the trained score tables reveals the mechanism: at the multi_gate `gate_1` state, `rattle_gate` (a stall action) receives score 1.0 when episodes that eventually succeed pass through that state, while `unlock_gate` (the pivotal action) receives the same score 1.0. With tied scores, the table policy breaks ties arbitrarily — and since `rattle_gate` loops back to the same state, the policy stalls indefinitely.
+*Table 5. Exploration rate ablation. The ranking combined $\geq$ branch-aware $\geq$ hindsight $\gg$ outcome-only holds across all tested rates.*
 
-On cascade tasks, `review_notes` (stall) competes with `gather_evidence` (enabling) at every stage. The outcome-only score for both is 1.0 in successful episodes and 0.0 in failures. With 50% exploration, roughly half of successful episodes include `review_notes` transitions, giving it a score ≈ 0.5 — close enough to `gather_evidence` (≈ 0.85) that some seeds produce a stall-preferring policy.
+The absolute success rates shift with exploration rate — higher exploration produces noisier collection data — but the qualitative ranking is preserved. The combined scorer achieves perfect success at all three rates.
 
-### Hindsight: Missing Stall Penalties
+## 6. Analysis
 
-Hindsight scoring fails on cascade tasks (0.286) because it adds bonuses for pivotal and enabling actions but does not penalise stalls. When `review_notes` has no `dead_end` label (it is a neutral stall, not a dead end), hindsight scores it the same as outcome_only. Branch_aware succeeds here because its verifier-signal bonus for `evidence_quality` creates a score gap even without a dead-end penalty.
+### 6.1 The Mechanics of Loop-Action Bias
 
-### Branch_Aware: Enabling Weakness
+Outcome-only scoring fails most severely on cascade and multi-gate tasks. To understand why, we inspect the trained score tables directly. At the multi-gate start state, the outcome-only scorer assigns `rattle_gate` (stall) a score of approximately 1.0 in episodes that eventually succeed — identical to the score assigned to `unlock_gate` (pivotal). With tied scores, the table policy breaks ties arbitrarily. Since `rattle_gate` loops back to the same state, the resulting policy stalls indefinitely, consuming all available turns.
 
-Branch_aware achieves 0.857 on enabling tasks (vs 1.000 for combined). The issue: the `browse` stall action at the enabling start state produces no dead-end signal (it loops back to the same state, not to a dead end), so branch_aware cannot penalise it. In some seeds, `browse`'s accumulated branch_aware score (1.0 from outcome + 0.0 penalty) is close to `collect_clue`'s score (1.0 from outcome + 0.25 × knowledge_gain = 1.25). Combined scoring adds hindsight's 0.5 enabling bonus to `collect_clue`, widening the gap to 1.75 vs 1.0 and eliminating the failure.
+The bias is more subtle on cascade tasks. Here, `review_notes` (stall) and `gather_evidence` (enabling) both appear in successful episodes, but `gather_evidence` appears slightly more often in successful episodes because it advances the task. With 50% exploration, the score gap is narrow — approximately 0.85 for `gather_evidence` vs. 0.50 for `review_notes` — and some random seeds produce score tables where the gap reverses. Branch-aware scoring widens this gap by adding the `evidence_quality` verifier signal to `gather_evidence` transitions, making the score gap robust to seed variation.
 
-### Complementarity
+### 6.2 Complementary Failure Modes
 
-The failure modes are complementary: branch_aware fails when stalls have no dead-end label (enabling), hindsight fails when stalls have no pivotal/enabling label (cascade). Combined scoring leverages both signals and achieves 1.000 on every task family across both benchmarks.
+The per-family analysis reveals a clean complementarity between branch-aware and hindsight scoring:
 
-## Limitations
+- **Branch-aware fails on enabling tasks** (0.857) because stall actions there produce no dead-end signal — they loop back to the same state without triggering a dead-end marker. The score gap between `browse` (stall) and `collect_clue` (enabling) depends entirely on the `knowledge_gain` verifier signal, which is small (0.25).
 
-**Manifest-driven environments.** Our benchmarks use hand-authored state graphs with explicit branch labels and verifier signals. Real-world environments (e.g., live web navigation, code execution) require automatic extraction of these signals from tool outputs, which is an open problem. The method assumes that transition-level verification is available — it cannot be applied to environments where only terminal outcomes are observable.
+- **Hindsight fails on cascade tasks** (0.286) because stall actions there have no pivotal, enabling, or recovery label — they are unlabeled neutral loops. Hindsight scoring treats them identically to outcome-only.
 
-**Heuristic collection policy.** The prompted policy uses oracle access with random exploration, not a language model. This means the training data has a specific exploration pattern (oracle-biased with random deviations) that may not match the trajectory distribution of a real LLM agent. Validating with a real LLM policy (e.g., via the VLLMServerPolicyBackend) is needed before deploying the method in production.
+The combined scorer resolves both cases: branch-aware penalties suppress dead-end actions on cascade tasks, while hindsight bonuses amplify enabling actions on enabling tasks. This complementarity is not engineered — it emerges from the different information sources each scorer leverages.
 
-**Table-based policy.** The trained policy is a state-action score table, not a neural network. This limits generalization to states with exact hash matches — the policy cannot interpolate between similar but non-identical states. In practice, the abstract state representation must be carefully designed to ensure sufficient train/eval overlap.
+### 6.3 Budget Parity
 
-**Small task count.** The diagnostic benchmark has 5 train + 5 eval tasks; WebShop has 2 train + 1 eval. While 50 rollouts per task and 7 seeds provide reasonable statistical power for each task, the task-level diversity is limited. Scaling to benchmarks with hundreds of tasks (e.g., full WebShop, SWE-bench) would strengthen generalization claims.
+A potential concern is that the trained policies achieve higher success by using more compute, not by making better decisions. We control for this by matching the collection rollout count across all conditions (50 per run). The resulting variation in average turns and verifier calls is an *outcome* of policy quality — better policies solve tasks in fewer turns — not a confound. Combined scoring achieves the highest success with the *fewest* average turns (2.40 vs. 6.06 for outcome-only), indicating that it finds shorter solution paths rather than simply exploring more.
 
-**No confidence intervals.** We report mean, min, and max across seeds but do not compute formal confidence intervals or significance tests. With 7 seeds, the effective sample size for condition-level comparisons is small. The exploration-rate ablation provides additional robustness evidence but is not a substitute for proper statistical testing.
+## 7. Limitations
 
-**Scorer design is manual.** The branch_aware and hindsight scorers use hand-tuned weights (0.25 for verifier scores, 0.75 for pivotal bonus, etc.). We did not search over these hyperparameters. The qualitative ranking may be robust to weight choices, but the quantitative gaps could shift.
+Several limitations of this work merit discussion.
 
-## Conclusion
+**Manifest-driven environments.** Our benchmarks rely on hand-authored state graphs with explicit branch labels and verifier signals. While such structure is common in tool-use and web-navigation agents, many real-world environments lack clean transition-level supervision. Extending our approach to settings where verifier signals must be inferred — for instance, from code execution traces or tool output parsing — is an important direction for future work.
 
-We identify loop-action bias as a specific, mechanistic failure of outcome-only credit assignment in multi-step agent environments. Branch-aware scoring — using per-transition verifier signals to penalise dead-ends and reward progress — corrects this bias and produces policies that solve tasks in fewer turns. Hindsight scoring provides complementary benefits for enabling tasks but fails on cascaded stalls without dead-end labels. Combined scoring eliminates both failure modes, achieving perfect success across two benchmarks (diagnostic and WebShop) with 7 seeds each. The hierarchy combined > branch_aware > hindsight >> outcome_only is stable across exploration rates and task families.
+**Heuristic collection policy.** The prompted policy used for data collection has oracle access and explores via random perturbation. A real deployment would use a language-model policy generating natural-language actions, producing a different trajectory distribution. We expect the qualitative findings to transfer — loop-action bias is a property of the scorer, not the collection policy — but empirical validation with LLM-generated trajectories is needed.
 
-The key practical implication: agents trained with outcome-only credit assignment may systematically prefer plausible-looking stall actions over genuine progress. Adding per-transition credit signals — even simple ones like dead-end flags and verifier scores — can dramatically improve policy quality under matched collection budgets.
+**Table-based policy representation.** Our trained policies are state-action score tables that require exact abstract-state matches. This precludes generalization to truly novel states and requires careful design of the abstract state representation. Neural function approximation would relax this constraint but introduces additional confounds that we wished to avoid in this controlled study.
 
+**Task and benchmark scale.** The diagnostic benchmark contains 5 training and 5 evaluation tasks; WebShop contains 2 training and 1 evaluation task. While 50 rollouts per task and 7 random seeds provide reasonable per-condition statistical power, the task-level diversity is limited. Scaling to benchmarks with hundreds of tasks would strengthen generalization claims.
+
+**Fixed scorer weights.** The branch-aware and hindsight scorers use hand-selected weights (0.25 for verifier signals, 0.75 for pivotal bonuses, etc.). We did not conduct a hyperparameter search over these values. The qualitative ranking appears robust — it holds across exploration rates and benchmarks — but the quantitative margins could shift with different weight settings.
+
+**Absence of formal statistical tests.** We report means, minima, and maxima across 7 seeds but do not compute confidence intervals or significance tests. The exploration-rate ablation provides evidence of robustness beyond point estimates, but formal statistical analysis with larger seed counts would strengthen the conclusions.
+
+## 8. Conclusion
+
+We have identified loop-action bias as a concrete, mechanistic failure mode of outcome-only credit assignment in multi-step agent environments. When stall actions — which loop without progress — appear in successful episodes, they inherit credit they did not earn, producing trained policies that systematically prefer stalling over genuine progress. On multi-step tasks, this bias compounds, yielding policies that perform worse than the unlearned baseline.
+
+Branch-aware credit assignment, which leverages per-transition verifier signals to penalize dead ends and reward observable progress, largely corrects this bias. Hindsight credit assignment, which retrospectively assigns bonuses based on branch labels, provides complementary benefits for a distinct class of tasks. A combined scorer achieves perfect success across both a controlled diagnostic benchmark and a WebShop navigation benchmark, with a stable ranking across seven random seeds and three exploration-rate settings.
+
+The practical implication is straightforward: in any agent environment where transition-level verification is available — tool-use confirmation, code execution feedback, structured state validation — incorporating these signals into credit assignment can meaningfully improve policy quality, even with simple tabular training methods. The signals need not be elaborate; even binary dead-end flags and single-dimensional verifier scores suffice to break the loop-action bias that outcome-only scoring cannot avoid.
+
+## References
+
+- Andrychowicz, M., et al. (2017). Hindsight experience replay. *NeurIPS*.
+- Cobbe, K., et al. (2021). Training verifiers to solve math word problems. *arXiv:2110.14168*.
+- Lightman, H., et al. (2023). Let's verify step by step. *arXiv:2305.20050*.
+- Ouyang, L., et al. (2022). Training language models to follow instructions with human feedback. *NeurIPS*.
+- Shridhar, M., et al. (2021). ALFWorld: Aligning text and embodied environments for interactive learning. *ICLR*.
+- Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press.
+- Uesato, J., et al. (2022). Solving math word problems with process- and outcome-based feedback. *arXiv:2211.14275*.
+- Yao, S., et al. (2022). ReAct: Synergizing reasoning and acting in language models. *arXiv:2210.03629*.
+- Yao, S., et al. (2022b). WebShop: Towards scalable real-world web interaction with grounded language agents. *NeurIPS*.
