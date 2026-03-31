@@ -52,61 +52,109 @@ Our work is distinct from these concurrent efforts in several respects. First, w
 
 ### 3.1 Environment Model
 
-We represent each task as a directed graph $G = (S, E)$ where states $s \in S$ are characterized by an abstract representation $\phi(s)$ and a set of available actions $A(s)$. Each edge $e = (s, a, s')$ carries an observation string, a branch label $\ell(e) \in \{\text{pivotal}, \text{dead\_end}, \text{stall}, \text{enabling}, \text{recovery}, \text{success}, \text{failure}\}$, and a verifier signal vector $v(e) \in \mathbb{R}^k$.
+We represent each task as a directed graph $G = (S, E)$ where states $s \in S$ are characterized by an abstract representation $\phi(s)$ and a set of available actions $A(s)$. Each edge $e = (s, a, s')$ carries:
 
-The abstract representation $\phi(s)$ determines state identity for generalization: two states in different tasks with the same $\phi(s)$ are treated as identical by the trained policy. This enables transfer from training tasks to held-out evaluation tasks that share the same decision structure but differ in surface features (e.g., different products in a shopping task).
+- An **observation string** describing the transition outcome in natural language.
+- A **branch label** $\ell(e) \in \{\text{pivotal}, \text{dead\_end}, \text{stall}, \text{enabling}, \text{recovery}, \text{success}, \text{failure}\}$ categorizing the role of the action in the task's decision structure.
+- Boolean **dead-end**, **recovery**, and **enabling** flags indicating whether the transition leads to an irrecoverable state, represents corrective behavior, or unlocks future progress, respectively.
+- A **verifier signal vector** $v(e) \in \mathbb{R}^k$ providing environment-native scalar feedback on the quality of the transition (e.g., `inspection_quality: 1`, `gate_progress: 1`, `evidence_quality: 1`).
+- A **progress delta** $\Delta p(e) \in \{-2, -1, 0, 1, 2\}$ indicating whether the transition advances, regresses, or stalls the task.
 
-### 3.2 Collection
+These annotations are defined in YAML manifests (one per benchmark) and are evaluated by the environment adapter at each step. Importantly, they are not labels assigned after the fact — they are structural properties of the task graph that the environment can report at each transition, analogous to the signals a tool-use environment might produce (e.g., "command succeeded," "file not found," "test passed").
 
-A prompted policy $\pi_\text{collect}$ gathers training episodes by following the oracle action with probability $1 - \epsilon$ and sampling uniformly from $A(s)$ otherwise. The exploration rate $\epsilon$ controls the diversity of observed state-action pairs. Crucially, $\pi_\text{collect}$ uses a stateful random number generator seeded once per run, ensuring that different rollouts within the same run produce independent trajectories. This design choice arose from a methodological finding during development: per-step re-seeding (keyed on state hash and turn index) made every rollout deterministic, eliminating within-run trajectory diversity regardless of rollout count.
+**State abstraction.** The abstract representation $\phi(s)$ determines state identity for cross-task generalization. It is a dictionary of semantic fields (e.g., `{page: search, phase: browse}` for WebShop, or `{family: multi_gate, gate: 2}` for the diagnostic benchmark) that capture the *structural role* of a state while discarding task-specific surface details. Two states in different tasks with the same $\phi(s)$ produce the same hash and are treated as identical by the trained policy. This is what enables a model trained on "buy a red mug" to generalize to "buy a green travel mug" — both tasks share the abstract progression `search → results → product → cart → checkout`, and the abstract state at each step is identical.
+
+**Verifier events.** At each transition, the environment emits a list of `VerifierEvent` objects, each containing a signal name (e.g., `success`, `dead_end`, `inspection_quality`), a numeric score, and an optional details dictionary. These events drive the branch-aware scorer and are stored alongside each transition in the trajectory database for post-hoc analysis.
+
+### 3.2 Collection Policy
+
+A prompted policy $\pi_\text{collect}$ gathers training episodes. At each state $s$, if an oracle action $a^*$ is available, the policy follows it with probability $1 - \epsilon$ and samples uniformly from $A(s)$ with probability $\epsilon$. The exploration rate $\epsilon = 0.5$ ensures that approximately half of all transitions explore non-oracle actions, providing the training data with coverage of both good and bad actions at each state.
+
+The policy uses a **stateful random number generator** seeded once per policy instantiation (at the start of each run), rather than re-seeding at every step. This design choice arose from a critical methodological finding during development: an earlier implementation seeded the RNG per step using `seed:task_id:state_hash:turn_index`, which made every rollout within a run *completely deterministic*. No matter how many rollouts were collected, the policy made the identical decision at every state, producing $N$ identical episodes rather than $N$ independent trajectories. The stateful RNG ensures that each rollout explores a different path through the state graph.
 
 ### 3.3 Offline Scorers
 
-Given a collected episode $\tau = (s_0, a_0, s_1, a_1, \ldots, s_T)$ with binary outcome $y \in \{0, 1\}$, each scorer assigns a score $r_i$ to every transition $(s_i, a_i, s_{i+1})$:
+Given a collected episode $\tau = (s_0, a_0, s_1, a_1, \ldots, s_T)$ with binary outcome $y \in \{0, 1\}$, each scorer assigns a score $r_i$ to every transition $(s_i, a_i, s_{i+1})$. The four scorers represent increasing levels of information use:
 
-**Outcome-only.** $r_i = y$. All transitions in a successful episode receive score 1; all transitions in a failed episode receive 0.
+**Outcome-only** uses only the terminal signal:
 
-**Branch-aware.** $r_i = y + 0.25 \sum_j v_j(e_i) - 0.5 \sum_j \mathbb{1}[\text{dead\_end}_j(e_i)]$, where $v_j(e_i)$ are the verifier signal scores and $\text{dead\_end}_j$ flags on transition $e_i$. This rewards transitions that produce positive verifier signals and penalizes those that lead to dead-end states.
+$$r_i = y$$
 
-**Hindsight.** $r_i = y + 0.75 \cdot \mathbb{1}[\ell(e_i) = \text{pivotal}] + 0.5 \cdot \mathbb{1}[\text{recovery}(e_i)] + 0.5 \cdot \mathbb{1}[\text{enabling}(e_i)] + 0.1 \cdot \mathbb{1}[i = 0 \wedge y = 1]$. This retrospectively rewards transitions whose branch labels indicate causal importance.
+Every transition in a successful episode receives score 1; every transition in a failed episode receives 0. This is the default in outcome-based RLHF and the baseline we aim to improve upon.
 
-**Combined.** $r_i = r_i^{\text{branch-aware}} + r_i^{\text{hindsight}} - r_i^{\text{outcome}}$. This adds both branch-aware penalties and hindsight bonuses while avoiding double-counting the outcome term.
+**Branch-aware** adds environment-native verifier signals:
+
+$$r_i = y + 0.25 \sum_j v_j(e_i) - 0.5 \sum_j \mathbb{1}[\text{dead\_end}_j(e_i)]$$
+
+where $v_j(e_i)$ are verifier signal scores and $\text{dead\_end}_j$ are dead-end flags on transition $e_i$. The 0.25 and 0.5 coefficients weight the relative importance of progress signals vs. dead-end penalties. This scorer directly addresses loop-action bias: stall actions produce no verifier signals ($v_j = 0$) and no dead-end flags, so they receive score $y$, while pivotal actions with verifier signals receive $y + 0.25$, breaking the tie.
+
+**Hindsight** adds retrospective branch-label bonuses:
+
+$$r_i = y + 0.75 \cdot \mathbb{1}[\ell(e_i) = \text{pivotal}] + 0.5 \cdot \mathbb{1}[\text{recovery}(e_i)] + 0.5 \cdot \mathbb{1}[\text{enabling}(e_i)] + 0.1 \cdot \mathbb{1}[i = 0 \wedge y = 1]$$
+
+This retrospectively rewards transitions whose branch labels indicate causal importance. The bonus weights (0.75 for pivotal, 0.5 for recovery/enabling, 0.1 for first-turn in successful episodes) are hand-selected to reflect the intuitive ordering of causal importance. Hindsight uses categorical labels rather than continuous signals, making it applicable when verifier scores are not available but branch categories are.
+
+**Combined** integrates both signal types:
+
+$$r_i = r_i^{\text{branch-aware}} + r_i^{\text{hindsight}} - r_i^{\text{outcome}}$$
+
+Subtracting the outcome term avoids double-counting the base $y$ signal. The combined scorer benefits from both the dead-end penalties of branch-aware scoring and the categorical bonuses of hindsight scoring.
 
 ### 3.4 Policy Training and Evaluation
 
-Scored transitions are aggregated into a score table $Q(\phi(s), a) = \frac{1}{n} \sum_{i: \phi(s_i) = \phi(s), a_i = a} r_i$, averaging scores across all episodes in which state-action pair $(\phi(s), a)$ was observed. At evaluation time, the table policy selects $\arg\max_{a \in A(s)} Q(\phi(s), a)$.
+Scored transitions are aggregated into a **score table** $Q(\phi(s), a)$, a mapping from abstract state-action pairs to average scores:
 
-For states not present in the score table, the policy selects an action uniformly at random from $A(s)$. This design choice is deliberate: falling back to the oracle action (which was the default behavior in an earlier version of the system) inflates apparent performance by giving the policy free correct answers at states it never learned to handle. Random fallback ensures that measured success reflects genuine learned policy quality.
+$$Q(\phi(s), a) = \frac{1}{n_{s,a}} \sum_{i:\, \phi(s_i) = \phi(s),\, a_i = a} r_i$$
 
-### 3.5 Experimental Protocol
+where $n_{s,a}$ is the number of times action $a$ was observed in abstract state $\phi(s)$ across all collected episodes. The score table is stored as a JSON file mapping state hashes to action-score dictionaries.
 
-For each random seed, we: (1) collect 50 rollouts on the training split using $\pi_\text{collect}$; (2) for each of five scoring conditions (outcome-only, branch-aware, hindsight, combined, and combined with matched budget), train a score table on the collected episodes and evaluate the resulting policy on the held-out evaluation split with 50 rollouts. The collection budget (rollout count, maximum turns, token limits) is identical across all conditions — the only experimental variable is the scorer used to weight transitions. We repeat across 7 seeds and report aggregate statistics.
+At evaluation time, the **table policy** selects $\arg\max_{a \in A(s)} Q(\phi(s), a)$, choosing the highest-scoring action among those available at the current state. When the table contains scores for actions not available in the current state (or vice versa), only available actions are considered; unavailable actions are ignored.
+
+**Fallback behavior.** For states not present in the score table — i.e., states the collection policy never visited — the table policy selects an action **uniformly at random** from $A(s)$. This is a deliberate design choice. An earlier version of the system fell back to the oracle action, which inflated apparent performance by giving the policy free correct answers at unvisited states. In our experiments, trained models typically covered 60–80% of evaluation states, meaning the fallback behavior materially affected results. Random fallback ensures that measured success reflects only what the policy actually learned from the scored training data.
+
+### 3.5 Sweep Execution and Safety
+
+The full experimental pipeline is orchestrated by a **sweep runner** that, for each seed: (1) collects episodes with the prompted policy on the training split; (2) for each scoring condition, trains a score table on the collected episodes; (3) evaluates the resulting table policy on the held-out evaluation split. A **safety guard** enforces budgets (maximum runs, prompt/completion tokens, verifier calls, wall-clock time, and estimated cost in USD) both before launch (projected budget check) and after each run (actual consumption check). The guard halts the sweep if any ceiling is exceeded or if the failure count reaches a configurable threshold. This ensures that experimental runs cannot accidentally consume unbounded resources, which is important when running on cloud GPU instances.
+
+### 3.6 Experimental Protocol
+
+For each of 7 random seeds $\in \{7, 11, 19, 23, 31, 37, 41\}$, we collect 50 rollouts on the training split using $\pi_\text{collect}$ with $\epsilon = 0.5$ and a maximum of 10 turns per episode. For each of 6 scoring conditions (prompted baseline, outcome-only, branch-aware, hindsight, combined, combined with matched budget), we train a score table and evaluate on the held-out evaluation split with 50 rollouts. The collection budget is identical across all conditions — the only experimental variable is the scorer used to assign transition scores. All experiments are run locally on a MacBook (Apple Silicon) and reproduced on a GCP g2-standard-8 instance (NVIDIA L4 GPU, CUDA 12.8) to verify cross-platform reproducibility. Results are stored in SQLite and exported as CSV and SVG for the paper.
 
 ## 4. Benchmarks
 
+All benchmarks are defined as YAML manifests specifying task graphs with explicit state definitions, action edges, branch labels, and verifier signals. The same `GraphManifestEnv` adapter processes all benchmarks, ensuring consistent state hashing, transition verification, and episode recording. Benchmark manifests are versioned (`v1`) and stored alongside the codebase for reproducibility.
+
 ### 4.1 Diagnostic Benchmark
 
-We construct a controlled diagnostic benchmark comprising five task families, each designed to isolate a specific aspect of credit assignment:
+We construct a controlled diagnostic benchmark comprising five task families (10 tasks total: 5 train, 5 eval), each designed to isolate a specific aspect of credit assignment. Every state in every task includes at least one stall action alongside the pivotal action, ensuring that outcome-only scoring faces a meaningful disambiguation challenge.
 
-- **Dead-end avoidance.** A pivotal action (inspect) competes with a dead-end (rush) and a stall (wait). The simplest test of whether a scorer can distinguish progress from regression.
+**Dead-end avoidance** (2–3 states). The agent starts at a branch point with three actions: `inspect` (pivotal, emits `inspection_quality: 1`), `rush` (dead-end, terminates in failure), and `wait` (stall, loops back to start). After inspecting, the agent reaches a `prepared` state where `commit_fix` succeeds and `wander` leads to a dead-end. This is the simplest test: can the scorer distinguish progress from regression?
 
-- **Enabling recognition.** A required preparatory step (collect evidence) competes with a stall action (browse) and a premature terminal action (answer immediately). Tests whether scorers reward non-obvious progress.
+**Enabling recognition** (2 states). The agent must take a preparatory step (`collect_clue`, emits `knowledge_gain: 1`) before answering. Competing actions include `browse` (stall, loops to start) and `answer_now` (premature, terminates in failure). The key challenge: `browse` appears in successful episodes (when the agent eventually takes `collect_clue` on a later visit) and inherits a high outcome-only score despite contributing nothing. Branch-aware scoring breaks the tie via the `knowledge_gain` verifier signal; hindsight scoring breaks it via the `enabling` label.
 
-- **Recovery credit.** The task begins with an intentional mistake; the agent must recover rather than doubling down. Tests whether scorers credit corrective actions.
+**Recovery credit** (3 states). The oracle path deliberately begins with a mistake (`wrong_tool` → `mistake` state), after which the agent must `recover` (emits `repair_quality: 1`) rather than `double_down` (dead-end). The alternative path `safe_probe` avoids the mistake entirely. This tests whether scorers can credit corrective behavior after errors.
 
-- **Multi-gate (sequential decisions).** Three gates in sequence, each offering a pivotal unlock, a stall (rattle), and a regression (retreat). Tests whether loop-action bias compounds across decision points.
+**Multi-gate** (4–5 states, 3 sequential decision points). Three gates in sequence, each with `unlock_gate` (pivotal, emits `gate_progress: 1`), `rattle_gate` (stall, loops to same gate), and either `force_gate` (dead-end at gate 1) or `retreat` (regression to previous gate at gates 2–3). A `blocked` state with `reset_gate` (recovery) handles jam recovery. This is the critical test for compounding loop-action bias: with three sequential stall opportunities, outcome-only scoring increasingly favors stalling at every gate.
 
-- **Cascade (multi-step enabling).** Three stages of evidence gathering with stall actions at each stage. Unlike multi-gate, stall actions here lack dead-end labels — they are neutral loops, not labeled failures. Tests the subtlest form of loop-action bias.
+**Cascade** (4 states, 3 sequential decision points). Three stages of evidence gathering, each with `gather_evidence` (enabling, emits `evidence_quality: 1`), `review_notes` (stall, loops to same stage), and `guess` (premature, leads to `weak_answer` or failure). Unlike multi-gate, stall actions here carry *no dead-end label* — they are neutral loops. This tests the subtlest form of loop-action bias, where branch-aware scoring can still discriminate via verifier signals but hindsight scoring (which relies on categorical labels) cannot.
 
-Each family includes matched training and evaluation tasks that share abstract state representations, ensuring models trained on one task instance generalize to the corresponding evaluation instance.
+**Train/eval alignment.** Each family has matched train and eval task instances that share abstract state representations (e.g., `{family: multi_gate, gate: 2}` appears in both `diag_multi_gate_train_01` and `diag_multi_gate_eval_01`). The eval tasks have identical state graphs with different instruction text, ensuring that the trained score table is directly applicable.
 
 ### 4.2 WebShop Benchmark
 
-We adapt the WebShop environment (Yao et al., 2022b) as a manifest-driven task graph. The agent must search for a product, navigate result listings, select the correct item, add it to cart, and complete checkout. We abstract product-specific details into generic action labels (e.g., `search_target`, `open_target`, `open_distractor`) so that a policy trained on "buy a red mug" can be evaluated on "buy a green travel mug." Each state includes stall actions — browsing featured items, refining an already-adequate search, comparing prices when none are cheaper — that loop without meaningful progress.
+We adapt the WebShop environment (Yao et al., 2022b) as a manifest-driven task graph with 3 tasks (2 train, 1 eval). The task structure models the full product-search-and-purchase workflow:
+
+1. **Search** (`{page: search, phase: browse}`): The agent chooses `search_target` (correct query, emits `query_quality: 1`), `search_other` (noisy query, leads to lower-quality results), or `browse_featured` (stall, loops to search).
+2. **Results** (`{page: results, phase: browse, quality: clean/noisy}`): The agent opens the target product (`open_target`, emits `selection_quality: 1`), opens a distractor (`open_distractor`, dead-end), or refines the search (`refine_search`, stall).
+3. **Product** (`{page: product, phase: decide}`): The agent adds to cart (`add_to_cart`, emits `cart_quality: 1`), goes back to results (`back`, stall), or compares prices (`compare_prices`, stall).
+4. **Wrong product** (`{page: product, phase: wrong}`): Recovery state reached via distractor. Agent can go back (`back`, recovery, emits `recovery_quality: 1`) or buy the wrong item (`add_to_cart`, dead-end failure).
+5. **Cart** (`{page: cart, phase: purchase}`): The agent checks out (`checkout`, success, emits `purchase_quality: 1`) or continues shopping (`continue_shopping`, regression back to search).
+
+Product-specific details are abstracted into generic action labels (`search_target`, `open_target`, `open_distractor`) so that a policy trained on "buy a red mug" and "buy a blue bottle" generalizes to "buy a green travel mug" at evaluation time. The abstract states (e.g., `{page: results, phase: browse, quality: clean}`) are identical across all three tasks.
 
 ### 4.3 ALFWorld Benchmark
 
-We include ALFWorld (Shridhar et al., 2021), an embodied text-based environment requiring navigation and object manipulation, as a more challenging third benchmark. The agent must navigate rooms, locate objects, and execute multi-step manipulation sequences. As with WebShop, we abstract surface details into generic action labels and include stall actions at each decision point.
+We include ALFWorld (Shridhar et al., 2021) as a third benchmark with embodied text-based navigation and object manipulation. The agent must navigate between rooms, locate target objects, and execute manipulation sequences (pick up, heat, place). As with WebShop, we abstract surface details into generic action labels and include stall actions (`look_around`, `wait`) at each decision point. ALFWorld proves substantially harder due to its larger state space and longer optimal trajectories, serving as a stress test for our approach's scalability.
 
 ## 5. Results
 
