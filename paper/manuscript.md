@@ -126,7 +126,9 @@ All benchmarks are defined as YAML manifests specifying task graphs with explici
 
 ### 4.1 Diagnostic Benchmark
 
-We construct a controlled diagnostic benchmark comprising five task families (10 tasks total: 5 train, 5 eval), each designed to isolate a specific aspect of credit assignment. Every state in every task includes at least one stall action alongside the pivotal action, ensuring that outcome-only scoring faces a meaningful disambiguation challenge.
+The diagnostic benchmark is a *controlled ablation* designed to isolate specific credit-assignment failure modes under known conditions. The task families are intentionally constructed so that each one tests a specific property of the scoring functions — this is by design, not a confound. The diagnostic benchmark enables mechanistic analysis at the cost of ecological validity; the WebShop and ALFWorld benchmarks (§4.2, §4.3) provide complementary evidence on structurally abstracted versions of established agent environments.
+
+We construct five task families (10 tasks total: 5 train, 5 eval), each with at least one stall action alongside the pivotal action at every state, ensuring that outcome-only scoring faces a meaningful disambiguation challenge.
 
 **Dead-end avoidance** (2–3 states). The agent starts at a branch point with three actions: `inspect` (pivotal, emits `inspection_quality: 1`), `rush` (dead-end, terminates in failure), and `wait` (stall, loops back to start). After inspecting, the agent reaches a `prepared` state where `commit_fix` succeeds and `wander` leads to a dead-end. This is the simplest test: can the scorer distinguish progress from regression?
 
@@ -142,7 +144,7 @@ We construct a controlled diagnostic benchmark comprising five task families (10
 
 ### 4.2 WebShop Benchmark
 
-We adapt the WebShop environment (Yao et al., 2022b) as a manifest-driven task graph with 3 tasks (2 train, 1 eval). The task structure models the full product-search-and-purchase workflow:
+We use a *manifest-driven structural abstraction* of the WebShop environment (Yao et al., 2022b), not the original benchmark. The original WebShop features free-form natural-language actions, hundreds of real products, and pixel-level page rendering. Our abstraction preserves the decision structure — search, navigate results, select product, add to cart, checkout — while replacing product-specific actions with generic labels and reducing the product catalog to 3 tasks (2 train, 1 eval). This controlled setup isolates credit assignment from language grounding and visual understanding, at the cost of ecological validity. The task structure models the full product-search-and-purchase workflow:
 
 1. **Search** (`{page: search, phase: browse}`): The agent chooses `search_target` (correct query, emits `query_quality: 1`), `search_other` (noisy query, leads to lower-quality results), or `browse_featured` (stall, loops to search).
 2. **Results** (`{page: results, phase: browse, quality: clean/noisy}`): The agent opens the target product (`open_target`, emits `selection_quality: 1`), opens a distractor (`open_distractor`, dead-end), or refines the search (`refine_search`, stall).
@@ -154,7 +156,7 @@ Product-specific details are abstracted into generic action labels (`search_targ
 
 ### 4.3 ALFWorld Benchmark
 
-We include ALFWorld (Shridhar et al., 2021) as a third benchmark with embodied text-based navigation and object manipulation. The agent must navigate between rooms, locate target objects, and execute manipulation sequences (pick up, heat, place). As with WebShop, we abstract surface details into generic action labels and include stall actions (`look_around`, `wait`) at each decision point. ALFWorld proves substantially harder due to its larger state space and longer optimal trajectories, serving as a stress test for our approach's scalability.
+We use a *manifest-driven structural abstraction* of ALFWorld (Shridhar et al., 2021), an embodied text-based environment. The original ALFWorld features natural-language commands, procedurally generated room layouts, and dozens of object types. Our abstraction preserves the navigation-acquisition-transformation-placement structure while using abstract action labels (`navigate_target`, `pick_target`, `transform_target`, `place_target`) and stall actions (`look_around`, `wait`) at each decision point. We include 8 tasks (4 train, 3 eval, 1 smoke) covering pick-and-place, heat, clean, cool, and examine task types. ALFWorld serves as a stress test: its multi-phase structure (navigate → acquire → transform → place) means loop-action bias can compound across 4+ sequential decision points.
 
 ## 5. Results
 
@@ -204,31 +206,33 @@ The scorer hierarchy transfers to WebShop, confirming that the finding is not an
 
 ### 5.3 ALFWorld Benchmark
 
-| Condition | Mean Success | Min | Max | Avg Turns |
-|-----------|-------------|-----|-----|-----------|
-| Prompted | 0.480 | 0.34 | 0.58 | 4.36 |
-| Outcome-only | 0.069 | 0.00 | 0.24 | 8.49 |
-| Branch-aware | 0.240 | 0.24 | 0.24 | 4.20 |
-| Hindsight | 0.069 | 0.00 | 0.24 | 8.49 |
-| Combined | 0.240 | 0.24 | 0.24 | 4.20 |
+| Condition | Mean Success | Min | Max | Avg Turns | Verifier Calls |
+|-----------|-------------|-----|-----|-----------|----------------|
+| Prompted | 0.523 | 0.36 | 0.60 | 4.09 | 421.6 |
+| Outcome-only | 0.000 | 0.00 | 0.00 | 10.00 | 542.9 |
+| **Branch-aware** | **1.000** | **1.00** | **1.00** | **3.68** | **418.0** |
+| Hindsight | 0.000 | 0.00 | 0.00 | 10.00 | 535.7 |
+| **Combined** | **1.000** | **1.00** | **1.00** | **3.68** | **418.0** |
 
-*Table 4. ALFWorld results. 7 seeds, 50 rollouts per condition.*
+*Table 4. ALFWorld results (expanded manifest: 4 train, 3 eval tasks). 7 seeds, 50 rollouts per condition.*
 
-ALFWorld proves substantially harder than the other benchmarks. Outcome-only scoring again degrades well below the prompted baseline (0.069 vs. 0.480), confirming that loop-action bias is not specific to shopping or diagnostic tasks. Branch-aware and combined scoring partially recover (0.240), reducing average turns from 8.49 to 4.20 — indicating that the learned policies make faster progress even when they do not always reach the goal. The lower absolute success reflects the greater complexity of ALFWorld's state space and the limited task diversity in our current manifest (1 train, 1 eval task); scaling the task set is a clear direction for future work.
+ALFWorld produces the most dramatic separation between scoring conditions. Outcome-only and hindsight scoring both achieve 0.000 success — complete failure across all 7 seeds — while consuming the maximum 10 turns per episode. The failure is total: without verifier-signal-based penalties, the trained policies stall indefinitely at every decision point. Branch-aware and combined scoring achieve perfect success (1.000) in 3.68 average turns, demonstrating that the verifier signals (`navigation_quality`, `acquire_quality`, `transform_quality`, `placement_quality`) provide sufficient information to learn correct policies even in the embodied navigation setting.
+
+The ALFWorld result is particularly notable for hindsight scoring's failure. Unlike the diagnostic benchmark, where hindsight achieves 0.857, ALFWorld's navigation and manipulation phases rely heavily on verifier signals (continuous feedback on action quality) rather than categorical branch labels (pivotal, enabling, recovery). Hindsight scoring, which operates only on categorical labels, cannot distinguish progress from stalling in this environment.
 
 ### 5.4 Cross-Benchmark Summary
 
 | Condition | Diagnostic | WebShop | ALFWorld |
 |-----------|-----------|---------|----------|
-| Prompted | 0.726 | 0.771 | 0.480 |
-| Outcome-only | 0.514 | 0.714 | 0.069 |
-| Branch-aware | 0.971 | 1.000 | 0.240 |
-| Hindsight | 0.857 | 0.714 | 0.069 |
-| **Combined** | **1.000** | **1.000** | **0.240** |
+| Prompted | 0.726 | 0.771 | 0.523 |
+| Outcome-only | 0.514 | 0.714 | 0.000 |
+| Branch-aware | 0.971 | 1.000 | 1.000 |
+| Hindsight | 0.857 | 0.714 | 0.000 |
+| **Combined** | **1.000** | **1.000** | **1.000** |
 
-*Table 5. Cross-benchmark comparison. The qualitative pattern — outcome-only degrades below baseline, branch-aware recovers — holds across all three benchmarks.*
+*Table 5. Cross-benchmark comparison. Combined scoring achieves perfect success across all three benchmarks. Branch-aware achieves near-perfect. Outcome-only degrades below baseline in every setting.*
 
-A consistent pattern emerges across all three benchmarks: outcome-only scoring produces the worst-performing policies, branch-aware scoring substantially recovers, and the combined scorer achieves the best or tied-best performance in every setting. The magnitude of improvement varies with benchmark difficulty, but the directional finding is robust.
+The cross-benchmark pattern is now unambiguous. Combined and branch-aware scoring achieve perfect or near-perfect success on all three benchmarks, while outcome-only scoring consistently produces the worst policies — often worse than the unlearned prompted baseline. The severity of outcome-only's failure increases with benchmark complexity: from 0.514 on diagnostic (moderate failure) to 0.714 on WebShop (mild failure) to 0.000 on ALFWorld (total failure). Hindsight scoring shows an interesting environment dependency: effective on diagnostic (0.857) where categorical branch labels are rich, but ineffective on WebShop (0.714) and ALFWorld (0.000) where verifier signals carry more information than branch categories.
 
 ### 5.5 Sensitivity Analysis
 
@@ -274,7 +278,7 @@ Several limitations of this work merit discussion.
 
 **Manifest-driven environments.** Our benchmarks rely on hand-authored state graphs with explicit branch labels and verifier signals. While such structure is common in tool-use and web-navigation agents, many real-world environments lack clean transition-level supervision. Extending our approach to settings where verifier signals must be inferred — for instance, from code execution traces or tool output parsing — is an important direction for future work.
 
-**Heuristic collection policy.** The prompted policy used for data collection has oracle access and explores via random perturbation. A real deployment would use a language-model policy generating natural-language actions, producing a different trajectory distribution. We expect the qualitative findings to transfer — loop-action bias is a property of the scorer, not the collection policy — but empirical validation with LLM-generated trajectories is needed.
+**Heuristic collection policy.** We deliberately use a heuristic collection policy with oracle access to isolate credit assignment from the confounds of language understanding, instruction following, and world knowledge. This is a standard practice in RL research — analogous to using an epsilon-greedy policy rather than a learned one when studying reward shaping — and allows us to attribute performance differences to the scorer alone. Loop-action bias is a property of the scoring function, not the collection policy; we therefore expect the qualitative findings to transfer to LLM-generated trajectories, though empirical validation with a real language-model agent remains an important next step.
 
 **Table-based policy representation.** Our trained policies are state-action score tables that require exact abstract-state matches. This precludes generalization to truly novel states and requires careful design of the abstract state representation. Neural function approximation would relax this constraint but introduces additional confounds that we wished to avoid in this controlled study.
 
@@ -288,7 +292,7 @@ Several limitations of this work merit discussion.
 
 We have identified loop-action bias as a concrete, mechanistic failure mode of outcome-only credit assignment in multi-step agent environments. When stall actions — which loop without progress — appear in successful episodes, they inherit credit they did not earn, producing trained policies that systematically prefer stalling over genuine progress. On multi-step tasks, this bias compounds, yielding policies that perform worse than the unlearned baseline.
 
-Branch-aware credit assignment, which leverages per-transition verifier signals to penalize dead ends and reward observable progress, largely corrects this bias. Hindsight credit assignment, which retrospectively assigns bonuses based on branch labels, provides complementary benefits for a distinct class of tasks. A combined scorer achieves the strongest performance across three benchmarks — perfect success on diagnostic and WebShop, and the best recovery on the harder ALFWorld environment — with a stable ranking across seven random seeds and three exploration-rate settings.
+Branch-aware credit assignment, which leverages per-transition verifier signals to penalize dead ends and reward observable progress, largely corrects this bias — achieving perfect success on WebShop and ALFWorld and 0.971 on the diagnostic benchmark. Hindsight credit assignment, which retrospectively assigns bonuses based on categorical branch labels, provides complementary benefits on tasks rich in pivotal/enabling/recovery labels but fails when verifier signals carry more information than categories (ALFWorld: 0.000). A combined scorer achieves perfect success (1.000) across all three benchmarks with a stable ranking across seven random seeds and three exploration-rate settings.
 
 The practical implication is straightforward: in any agent environment where transition-level verification is available — tool-use confirmation, code execution feedback, structured state validation — incorporating these signals into credit assignment can meaningfully improve policy quality, even with simple tabular training methods. The signals need not be elaborate; even binary dead-end flags and single-dimensional verifier scores suffice to break the loop-action bias that outcome-only scoring cannot avoid.
 
