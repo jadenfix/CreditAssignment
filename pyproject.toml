@@ -24,6 +24,9 @@ dev = [
 wandb = [
   "wandb>=0.18,<1",
 ]
+paper = [
+  "matplotlib>=3.8,<4",
+]
 
 [project.scripts]
 creditlab = "creditlab.cli.main:app"
