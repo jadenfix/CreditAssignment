@@ -101,11 +101,37 @@ creditlab sweep --config configs/webshop_paper_local.yaml
 creditlab sweep --config configs/alfworld_paper_local.yaml
 ```
 
-**Runtime:** ~3-5 minutes.
+**Configuration:** 7 seeds, 50 rollouts, exploration_rate=0.5. 4 train tasks (pick_place, clean_place, cool_place, examine), 3 eval tasks (heat_food, clean_place, pick_place_far). Abstract actions shared across all task types.
 
-**Expected output:** Lower absolute success (ALFWorld is harder), but the same qualitative pattern: outcome_only worst, branch_aware/combined recover.
+**Runtime:** ~5-10 minutes.
 
-## Step 7: Reproduce Exploration Rate Ablation (Table 6)
+**Expected output:**
+
+| Condition | Expected Mean Success |
+|-----------|----------------------|
+| prompted | ~0.52 |
+| outcome_only | 0.00 |
+| branch_aware | 1.00 |
+| hindsight | 0.00 |
+| combined | 1.00 |
+
+ALFWorld produces the most dramatic separation: outcome_only and hindsight achieve complete failure (0.00), while branch_aware and combined achieve perfect success.
+
+## Step 7: Generate Publication Figures
+
+```bash
+pip install matplotlib  # or: pip install -e ".[paper]"
+python scripts/render_paper_figures.py --output artifacts/paper/figures
+```
+
+This generates three figures in both PDF (300 DPI) and SVG:
+- `cross_benchmark_success.pdf` — Grouped bar chart with bootstrap 95% CIs
+- `per_family_heatmap.pdf` — Conditions × families heatmap (diagnostic)
+- `ablation_exploration_rate.pdf` — Sensitivity line chart
+
+The script also prints bootstrap 95% confidence intervals for all conditions.
+
+## Step 8: Reproduce Exploration Rate Ablation (Table 6)
 
 Create temporary configs with different exploration rates:
 
@@ -119,7 +145,7 @@ done
 
 The ranking (combined >= branch_aware >= hindsight >> outcome_only) should hold at all three rates.
 
-## Step 8: Inspect Trained Policies
+## Step 9: Inspect Trained Policies
 
 After any sweep, inspect the learned score tables:
 
@@ -140,7 +166,7 @@ This shows what action each scorer's model prefers at each state. You should see
 - **outcome_only** preferring stall actions (e.g., `rattle_gate`, `browse`, `review_notes`) at some states
 - **branch_aware** and **combined** consistently preferring pivotal actions
 
-## Step 9: Query the Run Database
+## Step 10: Query the Run Database
 
 All episodes, transitions, metrics, and verifier events are stored in `runs/creditlab.sqlite`:
 
@@ -154,7 +180,7 @@ sqlite3 runs/creditlab.sqlite \
   "SELECT r.condition_name, r.seed, COUNT(e.episode_id) FROM runs r JOIN episodes e ON r.run_id = e.run_id WHERE r.run_group_id='<GROUP_ID>' GROUP BY r.condition_name, r.seed;"
 ```
 
-## Step 10: Reproduce on GCP (Optional)
+## Step 11: Reproduce on GCP (Optional)
 
 For cloud reproduction matching the paper's GCP results:
 
@@ -189,11 +215,22 @@ gcloud compute ssh creditlab-gpu --command "
 # 4. Validate GPU setup
 gcloud compute ssh creditlab-gpu --command "/workspace/venv/bin/creditlab host-check"
 
-# 5. Run the sweep
+# 5. Run all three sweeps
 gcloud compute ssh creditlab-gpu --command "
   cd /workspace/creditlab
   /workspace/venv/bin/creditlab sweep --config configs/diagnostic_paper_gcp.yaml
+  /workspace/venv/bin/creditlab sweep --config configs/webshop_paper_gcp.yaml
+  /workspace/venv/bin/creditlab sweep --config configs/alfworld_paper_gcp.yaml
 "
+```
+
+**Tip:** For long-running sweeps, use `nohup` to prevent SSH disconnects from killing the process:
+
+```bash
+gcloud compute scp scripts/run_all_sweeps.sh creditlab-gpu:/tmp/
+gcloud compute ssh creditlab-gpu --command "nohup bash /tmp/run_all_sweeps.sh > /tmp/all_sweeps.log 2>&1 &"
+# Check progress:
+gcloud compute ssh creditlab-gpu --command "tail -5 /tmp/all_sweeps.log"
 ```
 
 ## File Layout
@@ -202,11 +239,17 @@ After running all steps, your artifact directory should contain:
 
 ```
 artifacts/
-  runs/<run_id>/          # Per-run: report.json, metrics.jsonl
-  policies/<scorer>_*.json # Trained score tables
-  paper/<group_id>/       # CSVs, SVGs, markdown for the paper
+  runs/<run_id>/             # Per-run: report.json, metrics.jsonl
+  policies/<scorer>_*.json   # Trained score tables
+  paper/<group_id>/          # CSVs, SVGs, markdown per sweep
+  paper/figures/             # Publication PDFs + SVGs (from render_paper_figures.py)
+    cross_benchmark_success.pdf
+    per_family_heatmap.pdf
+    ablation_exploration_rate.pdf
 runs/
-  creditlab.sqlite        # All episodes, transitions, metrics
+  creditlab.sqlite           # All episodes, transitions, metrics
+scripts/
+  render_paper_figures.py    # Publication figure generator
 ```
 
 ## Key Configuration Parameters
