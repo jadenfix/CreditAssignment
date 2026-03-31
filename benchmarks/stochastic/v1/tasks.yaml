@@ -1,0 +1,530 @@
+benchmark_name: stochastic
+revision: v1
+state_abstraction_version: v1
+verifier_version: v1
+tasks:
+  # ── STOCHASTIC GATE CHAIN (4 gates, each unlock has 75% success) ──────────
+  - task_id: stoch_gate_train_01
+    split: train
+    instruction: Unlock four gates in sequence. Each unlock attempt may fail stochastically.
+    metadata: {family: stoch_gate, pivotal_branch: unlock_gate, misleading_branch: rattle_gate}
+    states:
+      start:
+        phase: gate
+        mode: gate_1
+        progress: 0
+        abstract_fields: {family: stoch_gate, gate: 1}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: gate_2
+            observation: The first gate opens.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {gate_progress: 1}
+            success_probability: 0.75
+            failure_observation: The lock resists. The gate stays shut.
+          rattle_gate: {next_node: start, observation: Rattling does nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          force_gate: {next_node: jammed, observation: The gate jams., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      gate_2:
+        phase: gate
+        mode: gate_2
+        progress: 1
+        abstract_fields: {family: stoch_gate, gate: 2}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: gate_3
+            observation: The second gate opens.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {gate_progress: 1}
+            success_probability: 0.75
+            failure_observation: The lock resists again.
+          rattle_gate: {next_node: gate_2, observation: Rattling the second gate is useless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: start, observation: You retreat to gate 1., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      gate_3:
+        phase: gate
+        mode: gate_3
+        progress: 2
+        abstract_fields: {family: stoch_gate, gate: 3}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: gate_4
+            observation: The third gate opens.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {gate_progress: 1}
+            success_probability: 0.75
+            failure_observation: The third lock resists.
+          rattle_gate: {next_node: gate_3, observation: Rattling wastes time., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: gate_2, observation: You retreat to gate 2., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      gate_4:
+        phase: gate
+        mode: gate_4
+        progress: 3
+        abstract_fields: {family: stoch_gate, gate: 4}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate:
+            next_node: success
+            observation: The final gate opens. Task complete.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+            verifier_signals: {gate_progress: 1}
+            success_probability: 0.75
+            failure_observation: The final lock resists.
+          rattle_gate: {next_node: gate_4, observation: Rattling the last gate is pointless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: gate_3, observation: You retreat to gate 3., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      jammed:
+        phase: trap
+        mode: jammed
+        progress: -1
+        abstract_fields: {family: stoch_gate, gate: 0}
+        oracle_action: reset_gate
+        edges:
+          reset_gate: {next_node: start, observation: You unjam and reset., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {repair_quality: 1}}
+          give_up: {next_node: failure, observation: You give up., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {family: stoch_gate}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: stoch_gate}, edges: {}}
+
+  # ── STOCHASTIC SHOPPING ──────────────────────────────────────────────────
+  - task_id: stoch_shop_train_01
+    split: train
+    instruction: Search for and purchase a product. Search and selection may return noisy results.
+    metadata: {family: stoch_shop, pivotal_branch: search_target, misleading_branch: browse_featured}
+    states:
+      start:
+        phase: browse
+        mode: search
+        progress: 0
+        abstract_fields: {family: stoch_shop, phase: search}
+        oracle_action: search_target
+        edges:
+          search_target:
+            next_node: results
+            observation: Search returns relevant results.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {query_quality: 1}
+            success_probability: 0.70
+            failure_node: noisy_results
+            failure_observation: Search returns mostly irrelevant results.
+          browse_featured: {next_node: start, observation: Featured items are irrelevant., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      noisy_results:
+        phase: browse
+        mode: noisy_results
+        progress: 0
+        abstract_fields: {family: stoch_shop, phase: noisy_results}
+        oracle_action: open_target
+        edges:
+          open_target:
+            next_node: product
+            observation: Found the right product in noisy results.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: product_match
+            verifier_signals: {selection_quality: 1}
+            success_probability: 0.60
+            failure_node: wrong_product
+            failure_observation: Opened the wrong product from noisy results.
+          refine_search: {next_node: start, observation: Going back to search., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true}
+      results:
+        phase: browse
+        mode: results
+        progress: 1
+        abstract_fields: {family: stoch_shop, phase: results}
+        oracle_action: open_target
+        edges:
+          open_target:
+            next_node: product
+            observation: Opened the correct product.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: product_match
+            verifier_signals: {selection_quality: 1}
+            success_probability: 0.85
+            failure_node: wrong_product
+            failure_observation: Accidentally opened a similar but wrong product.
+          refine_search: {next_node: results, observation: Refining an already good search., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      product:
+        phase: decide
+        mode: product
+        progress: 2
+        abstract_fields: {family: stoch_shop, phase: product}
+        oracle_action: add_to_cart
+        edges:
+          add_to_cart: {next_node: cart, observation: Added to cart., progress_delta: 1, state_delta: improved, branch_label: cart, verifier_signals: {cart_quality: 1}}
+          compare_prices: {next_node: product, observation: No cheaper options found., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_product:
+        phase: decide
+        mode: wrong_product
+        progress: 0
+        abstract_fields: {family: stoch_shop, phase: wrong_product}
+        oracle_action: go_back
+        edges:
+          go_back: {next_node: start, observation: Returned to search., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          add_to_cart: {next_node: failure, observation: Bought the wrong product., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      cart:
+        phase: purchase
+        mode: cart
+        progress: 3
+        abstract_fields: {family: stoch_shop, phase: cart}
+        oracle_action: checkout
+        edges:
+          checkout: {next_node: success, observation: Purchase complete., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {purchase_quality: 1}}
+          continue_shopping: {next_node: start, observation: Went back to search for no reason., progress_delta: -2, state_delta: regressed, branch_label: regression}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {family: stoch_shop}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {family: stoch_shop}, edges: {}}
+
+  # ── STOCHASTIC NAVIGATION ────────────────────────────────────────────────
+  - task_id: stoch_nav_train_01
+    split: train
+    instruction: Navigate to the target room, pick up the object, and deliver it. Navigation and pickup may fail.
+    metadata: {family: stoch_nav, pivotal_branch: navigate_target, misleading_branch: look_around}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {family: stoch_nav, phase: navigate}
+        oracle_action: navigate_target
+        edges:
+          navigate_target:
+            next_node: target_room
+            observation: You reach the target room.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: pivotal
+            verifier_signals: {navigation_quality: 1}
+            success_probability: 0.80
+            failure_observation: You take a wrong turn and end up back in the hallway.
+          navigate_other: {next_node: wrong_room, observation: You enter the wrong room., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: You look around the hallway., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {family: stoch_nav, phase: wrong_room}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: target_room, observation: You find the correct room., progress_delta: 2, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}, success_probability: 0.80, failure_observation: Still lost.}
+          wait: {next_node: wrong_room, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      target_room:
+        phase: acquire
+        mode: at_target
+        progress: 1
+        abstract_fields: {family: stoch_nav, phase: acquire}
+        oracle_action: pick_target
+        edges:
+          pick_target:
+            next_node: carrying
+            observation: You pick up the object.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: enabling
+            enabling: true
+            verifier_signals: {acquire_quality: 1}
+            success_probability: 0.85
+            failure_observation: The object slips from your grasp.
+          pick_distractor: {next_node: failure, observation: You picked the wrong object., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: target_room, observation: You look around but nothing changes., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: deliver
+        mode: carrying
+        progress: 2
+        abstract_fields: {family: stoch_nav, phase: deliver}
+        oracle_action: deliver_target
+        edges:
+          deliver_target:
+            next_node: success
+            observation: Object delivered successfully.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+            verifier_signals: {delivery_quality: 1}
+            success_probability: 0.90
+            failure_observation: Delivery location was wrong. You still have the object.
+          drop_target: {next_node: target_room, observation: You accidentally drop the object., progress_delta: -1, state_delta: regressed, branch_label: regression}
+          look_around: {next_node: carrying, observation: Looking around while carrying., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: stoch_nav}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: stoch_nav}, edges: {}}
+
+  # ── STOCHASTIC EVIDENCE CASCADE ──────────────────────────────────────────
+  - task_id: stoch_cascade_train_01
+    split: train
+    instruction: Gather three pieces of evidence to build a case. Each gathering attempt may fail.
+    metadata: {family: stoch_cascade, pivotal_branch: gather_evidence, misleading_branch: review_notes}
+    states:
+      start:
+        phase: gather
+        mode: stage_1
+        progress: 0
+        abstract_fields: {family: stoch_cascade, stage: 1}
+        oracle_action: gather_evidence
+        edges:
+          gather_evidence:
+            next_node: stage_2
+            observation: First evidence gathered.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: enabling
+            enabling: true
+            verifier_signals: {evidence_quality: 1}
+            success_probability: 0.75
+            failure_observation: The evidence was inconclusive.
+          review_notes: {next_node: start, observation: Notes have nothing new., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          guess: {next_node: failure, observation: Guessing without evidence fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: premature, dead_end: true}
+      stage_2:
+        phase: gather
+        mode: stage_2
+        progress: 1
+        abstract_fields: {family: stoch_cascade, stage: 2}
+        oracle_action: gather_evidence
+        edges:
+          gather_evidence:
+            next_node: stage_3
+            observation: Second evidence gathered.
+            progress_delta: 1
+            state_delta: improved
+            branch_label: enabling
+            enabling: true
+            verifier_signals: {evidence_quality: 1}
+            success_probability: 0.75
+            failure_observation: Second attempt was inconclusive.
+          review_notes: {next_node: stage_2, observation: Nothing new in notes., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          guess: {next_node: weak_answer, observation: Partial guess is incomplete., progress_delta: 0, state_delta: neutral, branch_label: premature}
+      stage_3:
+        phase: synthesize
+        mode: stage_3
+        progress: 2
+        abstract_fields: {family: stoch_cascade, stage: 3}
+        oracle_action: synthesize
+        edges:
+          synthesize:
+            next_node: success
+            observation: Full evidence yields correct answer.
+            terminal: true
+            success: true
+            progress_delta: 2
+            state_delta: improved
+            branch_label: success
+            verifier_signals: {evidence_quality: 1}
+            success_probability: 0.80
+            failure_observation: Synthesis attempt was flawed. Try again.
+          review_notes: {next_node: stage_3, observation: Notes exhausted., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          guess: {next_node: weak_answer, observation: Guessing with partial evidence., progress_delta: 0, state_delta: neutral, branch_label: premature}
+      weak_answer:
+        phase: partial
+        mode: weak_answer
+        progress: 0
+        abstract_fields: {family: stoch_cascade, stage: 0}
+        oracle_action: revise
+        edges:
+          revise: {next_node: stage_2, observation: Revising approach., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {repair_quality: 1}}
+          submit_weak: {next_node: failure, observation: Weak answer fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: stoch_cascade}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: stoch_cascade}, edges: {}}
+
+  # ── EVAL TASKS (same families, same abstract states) ─────────────────────
+  - task_id: stoch_gate_eval_01
+    split: eval
+    instruction: Unlock four stochastic gates in sequence to complete the task.
+    metadata: {family: stoch_gate, pivotal_branch: unlock_gate, misleading_branch: rattle_gate}
+    states:
+      start:
+        phase: gate
+        mode: gate_1
+        progress: 0
+        abstract_fields: {family: stoch_gate, gate: 1}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: gate_2, observation: Gate 1 opens., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {gate_progress: 1}, success_probability: 0.75, failure_observation: Lock resists.}
+          rattle_gate: {next_node: start, observation: Rattling does nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          force_gate: {next_node: jammed, observation: Gate jams., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+      gate_2:
+        phase: gate
+        mode: gate_2
+        progress: 1
+        abstract_fields: {family: stoch_gate, gate: 2}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: gate_3, observation: Gate 2 opens., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {gate_progress: 1}, success_probability: 0.75, failure_observation: Lock resists.}
+          rattle_gate: {next_node: gate_2, observation: Useless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: start, observation: Retreating., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      gate_3:
+        phase: gate
+        mode: gate_3
+        progress: 2
+        abstract_fields: {family: stoch_gate, gate: 3}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: gate_4, observation: Gate 3 opens., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {gate_progress: 1}, success_probability: 0.75, failure_observation: Lock resists.}
+          rattle_gate: {next_node: gate_3, observation: Waste of time., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: gate_2, observation: Retreating., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      gate_4:
+        phase: gate
+        mode: gate_4
+        progress: 3
+        abstract_fields: {family: stoch_gate, gate: 4}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: success, observation: Final gate opens., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {gate_progress: 1}, success_probability: 0.75, failure_observation: Final lock resists.}
+          rattle_gate: {next_node: gate_4, observation: Pointless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+          retreat: {next_node: gate_3, observation: Retreating., progress_delta: -1, state_delta: regressed, branch_label: regression}
+      jammed:
+        phase: trap
+        mode: jammed
+        progress: -1
+        abstract_fields: {family: stoch_gate, gate: 0}
+        oracle_action: reset_gate
+        edges:
+          reset_gate: {next_node: start, observation: Gate reset., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {repair_quality: 1}}
+          give_up: {next_node: failure, observation: Giving up., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {family: stoch_gate}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: stoch_gate}, edges: {}}
+
+  - task_id: stoch_shop_eval_01
+    split: eval
+    instruction: Find and purchase the correct product despite noisy search results.
+    metadata: {family: stoch_shop, pivotal_branch: search_target, misleading_branch: browse_featured}
+    states:
+      start:
+        phase: browse
+        mode: search
+        progress: 0
+        abstract_fields: {family: stoch_shop, phase: search}
+        oracle_action: search_target
+        edges:
+          search_target: {next_node: results, observation: Search returns results., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {query_quality: 1}, success_probability: 0.70, failure_node: noisy_results, failure_observation: Noisy results.}
+          browse_featured: {next_node: start, observation: Featured items irrelevant., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      noisy_results:
+        phase: browse
+        mode: noisy_results
+        progress: 0
+        abstract_fields: {family: stoch_shop, phase: noisy_results}
+        oracle_action: open_target
+        edges:
+          open_target: {next_node: product, observation: Found correct product., progress_delta: 1, state_delta: improved, branch_label: product_match, verifier_signals: {selection_quality: 1}, success_probability: 0.60, failure_node: wrong_product, failure_observation: Wrong product.}
+          refine_search: {next_node: start, observation: Back to search., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true}
+      results:
+        phase: browse
+        mode: results
+        progress: 1
+        abstract_fields: {family: stoch_shop, phase: results}
+        oracle_action: open_target
+        edges:
+          open_target: {next_node: product, observation: Correct product., progress_delta: 1, state_delta: improved, branch_label: product_match, verifier_signals: {selection_quality: 1}, success_probability: 0.85, failure_node: wrong_product, failure_observation: Wrong product.}
+          refine_search: {next_node: results, observation: Already good., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      product:
+        phase: decide
+        mode: product
+        progress: 2
+        abstract_fields: {family: stoch_shop, phase: product}
+        oracle_action: add_to_cart
+        edges:
+          add_to_cart: {next_node: cart, observation: Added to cart., progress_delta: 1, state_delta: improved, branch_label: cart, verifier_signals: {cart_quality: 1}}
+          compare_prices: {next_node: product, observation: No cheaper., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_product:
+        phase: decide
+        mode: wrong_product
+        progress: 0
+        abstract_fields: {family: stoch_shop, phase: wrong_product}
+        oracle_action: go_back
+        edges:
+          go_back: {next_node: start, observation: Back to search., progress_delta: 0, state_delta: neutral, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          add_to_cart: {next_node: failure, observation: Wrong purchase., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+      cart:
+        phase: purchase
+        mode: cart
+        progress: 3
+        abstract_fields: {family: stoch_shop, phase: cart}
+        oracle_action: checkout
+        edges:
+          checkout: {next_node: success, observation: Purchase complete., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {purchase_quality: 1}}
+          continue_shopping: {next_node: start, observation: Back to search needlessly., progress_delta: -2, state_delta: regressed, branch_label: regression}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {family: stoch_shop}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -1, abstract_fields: {family: stoch_shop}, edges: {}}
+
+  - task_id: stoch_nav_eval_01
+    split: eval
+    instruction: Navigate to the target, pick up the item, and deliver it. Actions may fail stochastically.
+    metadata: {family: stoch_nav, pivotal_branch: navigate_target, misleading_branch: look_around}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {family: stoch_nav, phase: navigate}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: target_room, observation: Reached target room., progress_delta: 1, state_delta: improved, branch_label: pivotal, verifier_signals: {navigation_quality: 1}, success_probability: 0.80, failure_observation: Wrong turn.}
+          navigate_other: {next_node: wrong_room, observation: Wrong room., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: Nothing useful., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {family: stoch_nav, phase: wrong_room}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: target_room, observation: Found correct room., progress_delta: 2, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}, success_probability: 0.80, failure_observation: Still lost.}
+          wait: {next_node: wrong_room, observation: Waiting., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      target_room:
+        phase: acquire
+        mode: at_target
+        progress: 1
+        abstract_fields: {family: stoch_nav, phase: acquire}
+        oracle_action: pick_target
+        edges:
+          pick_target: {next_node: carrying, observation: Picked up., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true, verifier_signals: {acquire_quality: 1}, success_probability: 0.85, failure_observation: Slipped.}
+          pick_distractor: {next_node: failure, observation: Wrong object., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: target_room, observation: Nothing changes., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: deliver
+        mode: carrying
+        progress: 2
+        abstract_fields: {family: stoch_nav, phase: deliver}
+        oracle_action: deliver_target
+        edges:
+          deliver_target: {next_node: success, observation: Delivered., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {delivery_quality: 1}, success_probability: 0.90, failure_observation: Wrong spot.}
+          drop_target: {next_node: target_room, observation: Dropped., progress_delta: -1, state_delta: regressed, branch_label: regression}
+          look_around: {next_node: carrying, observation: Looking around., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {family: stoch_nav}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {family: stoch_nav}, edges: {}}
+
+  # ── SMOKE ────────────────────────────────────────────────────────────────
+  - task_id: stoch_gate_smoke_01
+    split: smoke
+    instruction: Unlock two stochastic gates.
+    metadata: {family: stoch_gate, pivotal_branch: unlock_gate}
+    states:
+      start:
+        phase: gate
+        mode: gate_1
+        progress: 0
+        abstract_fields: {family: stoch_gate, gate: 1}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: gate_2, observation: Gate 1 opens., progress_delta: 1, state_delta: improved, branch_label: pivotal, success_probability: 0.75, failure_observation: Lock resists.}
+          rattle_gate: {next_node: start, observation: Useless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      gate_2:
+        phase: gate
+        mode: gate_2
+        progress: 1
+        abstract_fields: {family: stoch_gate, gate: 2}
+        oracle_action: unlock_gate
+        edges:
+          unlock_gate: {next_node: success, observation: Done., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, success_probability: 0.75, failure_observation: Lock resists.}
+          rattle_gate: {next_node: gate_2, observation: Useless., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 3, abstract_fields: {family: stoch_gate}, edges: {}}

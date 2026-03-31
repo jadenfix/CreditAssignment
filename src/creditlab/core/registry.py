@@ -6,6 +6,7 @@ from creditlab.core.config import ExperimentConfig
 from creditlab.envs.alfworld import ALFWorldEnv
 from creditlab.envs.code_benchmarks import LiveCodeBenchEnv, SWEBenchLiteEnv
 from creditlab.envs.diagnostic import DiagnosticBranchLabEnv
+from creditlab.envs.stochastic import StochasticEnv
 from creditlab.envs.webshop import WebShopEnv
 from creditlab.policies.prompted import PromptedPolicyBackend, VLLMServerPolicyBackend
 from creditlab.policies.table import TablePolicyBackend
@@ -29,6 +30,8 @@ def create_env(config: ExperimentConfig):
         return WebShopEnv(manifest_path=manifest, task_limit=task_limit)
     if config.env.name == "alfworld":
         return ALFWorldEnv(manifest_path=manifest, task_limit=task_limit)
+    if config.env.name == "stochastic":
+        return StochasticEnv(manifest_path=manifest, task_limit=task_limit)
     if config.env.name == "livecodebench":
         return LiveCodeBenchEnv(manifest_path=manifest, task_limit=task_limit)
     if config.env.name == "swebench_lite":

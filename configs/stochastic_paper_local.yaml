@@ -1,0 +1,65 @@
+name: stochastic_paper_local
+research_objective: evaluate branch-aware credit assignment in stochastic environments where optimal policies cannot achieve perfect success.
+env:
+  name: stochastic
+  split: train
+  config: {}
+policy:
+  name: prompted
+  config:
+    exploration_rate: 0.5
+    seed: 7
+trainer:
+  name: outcome_only
+  config: {}
+tracking:
+  backend: local
+  config: {}
+store:
+  sqlite_path: runs/creditlab.sqlite
+  artifact_root: artifacts
+benchmark:
+  name: stochastic
+  revision: v1
+  manifest_path: benchmarks/stochastic/v1/tasks.yaml
+  collect_split: train
+  eval_split: eval
+model_backend:
+  name: local_heuristic
+  config: {}
+training_backend:
+  name: local_table
+  config: {}
+deployment:
+  profile: local
+  platform: local
+paper_export:
+  output_dir: artifacts/paper
+  manuscript_path: paper/manuscript.md
+sweep:
+  enabled: true
+  seeds: [7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61]
+  safety:
+    allow_aws_execution: false
+    allow_gcp_execution: false
+    max_total_runs: 120
+    max_failed_runs: 5
+    max_retry_attempts: 2
+    retry_backoff_seconds: 0.0
+    max_total_prompt_tokens: 2000000
+    max_total_completion_tokens: 1000000
+    max_total_verifier_calls: 200000
+    max_total_wall_clock_seconds: 28800
+    max_estimated_cost_usd: 0.0
+    estimated_prompt_cost_per_1k: 0.0
+    estimated_completion_cost_per_1k: 0.0
+    estimated_instance_cost_per_hour: 0.0
+experiment:
+  seeds: [7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61]
+  budgets:
+    rollout_count: 50
+    max_turns: 15
+    max_prompt_tokens: 512
+    max_completion_tokens: 128
+    max_verifier_calls: 300
+    wall_clock_seconds: 600

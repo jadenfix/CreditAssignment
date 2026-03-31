@@ -44,6 +44,20 @@ def build_run_report(run_id: str, store) -> dict[str, Any]:
     total_verifier_calls = int(frame["verifier_calls"].sum()) if "verifier_calls" in frame.columns else 0
     avg_turns = (len(transition_rows) / rollout_count) if rollout_count else 0.0
     wall_clock = sum(max((episode.completed_at - episode.started_at).total_seconds(), 0.0) for episode in episodes)
+    partial_credits = []
+    for episode in episodes:
+        max_progress = max((n.state.payload.get("progress", 0) for n in episode.nodes), default=0)
+        task_def_progress = max(
+            (s.progress for s in store.load_task_states(episode.task.task_id))
+            if hasattr(store, "load_task_states")
+            else [max_progress + 1],
+            default=max_progress + 1,
+        )
+        if max_progress > 0:
+            partial_credits.append(min(max_progress / max(task_def_progress, 1), 1.0))
+        else:
+            partial_credits.append(1.0 if episode.success else 0.0)
+    avg_partial_credit = sum(partial_credits) / len(partial_credits) if partial_credits else 0.0
     summary = {
         "rollout_count": rollout_count,
         "avg_turns": avg_turns,
@@ -52,6 +66,7 @@ def build_run_report(run_id: str, store) -> dict[str, Any]:
         "verifier_calls": total_verifier_calls,
         "wall_clock_time": wall_clock,
         "success": success_count / rollout_count if rollout_count else 0.0,
+        "partial_credit": round(avg_partial_credit, 4),
         "tokens_per_success": (
             (total_prompt_tokens + total_completion_tokens) / success_count
             if success_count

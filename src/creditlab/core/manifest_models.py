@@ -17,6 +17,9 @@ class EdgeManifest(BaseModel):
     enabling: bool = False
     recovery: bool = False
     verifier_signals: dict[str, float] = Field(default_factory=dict)
+    success_probability: float = 1.0
+    failure_node: str | None = None
+    failure_observation: str = "The action did not succeed this time."
 
 
 class StateManifest(BaseModel):

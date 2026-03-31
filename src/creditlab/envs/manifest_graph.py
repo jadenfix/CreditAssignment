@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +21,13 @@ class GraphManifestEnv(EnvAdapter):
     benchmark_name = "graph_manifest"
     default_manifest = Path("benchmarks/diagnostic/v1/tasks.yaml")
 
-    def __init__(self, manifest_path: str | Path | None = None, task_limit: int | None = None) -> None:
+    def __init__(self, manifest_path: str | Path | None = None, task_limit: int | None = None, seed: int = 0) -> None:
         path = Path(manifest_path) if manifest_path else repo_root() / self.default_manifest
         with path.open("r", encoding="utf-8") as handle:
             self.manifest = BenchmarkManifest.model_validate(yaml.safe_load(handle))
         self.task_limit = task_limit
         self.task_definitions = {task.task_id: task for task in self.manifest.tasks}
+        self._rng = random.Random(seed)
 
     def list_tasks(self, split: str) -> list[TaskSpec]:
         tasks = [
@@ -68,7 +70,12 @@ class GraphManifestEnv(EnvAdapter):
                 },
             )
             return invalid, "That action is invalid from the current state.", False
-        next_state = self._snapshot_from_node(task, edge.next_node, list(state.payload["history"]) + [action.content])
+        updated_history = list(state.payload["history"]) + [action.content]
+        if edge.success_probability < 1.0 and self._rng.random() > edge.success_probability:
+            fail_node = edge.failure_node or state.payload["raw_node"]
+            next_state = self._snapshot_from_node(task, fail_node, updated_history)
+            return next_state, edge.failure_observation, False
+        next_state = self._snapshot_from_node(task, edge.next_node, updated_history)
         return next_state, edge.observation, edge.terminal
 
     def snapshot(self, state: StateSnapshot) -> StateSnapshot:
@@ -195,6 +202,12 @@ class ALFWorldEnv(GraphManifestEnv):
     env_name = "alfworld"
     benchmark_name = "alfworld"
     default_manifest = Path("benchmarks/alfworld/v1/tasks.yaml")
+
+
+class StochasticEnv(GraphManifestEnv):
+    env_name = "stochastic"
+    benchmark_name = "stochastic"
+    default_manifest = Path("benchmarks/stochastic/v1/tasks.yaml")
 
 
 class LiveCodeBenchEnv(GraphManifestEnv):
