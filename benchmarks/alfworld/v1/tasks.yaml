@@ -49,6 +49,164 @@ tasks:
           look_around: {next_node: carrying, observation: You look around but still need to place the object., progress_delta: 0, state_delta: neutral, branch_label: stall}
       success: {phase: done, mode: success, progress: 4, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
       failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+  - task_id: alfworld_train_clean_place
+    split: train
+    instruction: Go to the bathroom, pick up the cloth, clean it, and place it on the shelf.
+    metadata: {domain: embodied_text, task_type: clean_place, target_object: cloth, target_container: shelf}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You enter the bathroom., progress_delta: 1, state_delta: improved, branch_label: navigation, verifier_signals: {navigation_quality: 1}}
+          navigate_other: {next_node: wrong_room, observation: The garage is irrelevant., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: You look around the hallway., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You recover and reach the bathroom., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          wait: {next_node: wrong_room, observation: Waiting here changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      kitchen:
+        phase: acquire
+        mode: at_target_room
+        progress: 1
+        abstract_fields: {phase_tag: acquire, has_target: false}
+        oracle_action: pick_target
+        edges:
+          pick_target: {next_node: transforming, observation: You pick up the cloth., progress_delta: 1, state_delta: improved, branch_label: acquire, verifier_signals: {acquire_quality: 1}}
+          pick_distractor: {next_node: failure, observation: Wrong item fails the task., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: kitchen, observation: Nothing new here., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      transforming:
+        phase: transform
+        mode: needs_transform
+        progress: 2
+        abstract_fields: {phase_tag: transform, has_target: true}
+        oracle_action: transform_target
+        edges:
+          transform_target: {next_node: carrying, observation: The cloth is cleaned., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true, verifier_signals: {transform_quality: 1}}
+          skip_transform: {next_node: failure, observation: Placing a dirty cloth fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          wait: {next_node: transforming, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: place
+        mode: has_target
+        progress: 3
+        abstract_fields: {phase_tag: place, has_target: true}
+        oracle_action: place_target
+        edges:
+          place_target: {next_node: success, observation: Clean cloth placed on the shelf., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {placement_quality: 1}}
+          misuse_target: {next_node: failure, observation: Misusing the cloth fails., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: carrying, observation: Still need to place the object., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+  - task_id: alfworld_train_cool_place
+    split: train
+    instruction: Go to the kitchen, pick up the bottle, cool it, and place it in the fridge.
+    metadata: {domain: embodied_text, task_type: cool_place, target_object: bottle, target_container: fridge}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You enter the kitchen., progress_delta: 1, state_delta: improved, branch_label: navigation, verifier_signals: {navigation_quality: 1}}
+          navigate_other: {next_node: wrong_room, observation: The study is irrelevant., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: Nothing useful here., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You recover and reach the kitchen., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          wait: {next_node: wrong_room, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      kitchen:
+        phase: acquire
+        mode: at_target_room
+        progress: 1
+        abstract_fields: {phase_tag: acquire, has_target: false}
+        oracle_action: pick_target
+        edges:
+          pick_target: {next_node: transforming, observation: You pick up the bottle., progress_delta: 1, state_delta: improved, branch_label: acquire, verifier_signals: {acquire_quality: 1}}
+          pick_distractor: {next_node: failure, observation: Wrong item fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: kitchen, observation: Nothing new., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      transforming:
+        phase: transform
+        mode: needs_transform
+        progress: 2
+        abstract_fields: {phase_tag: transform, has_target: true}
+        oracle_action: transform_target
+        edges:
+          transform_target: {next_node: carrying, observation: The bottle is cooled., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true, verifier_signals: {transform_quality: 1}}
+          skip_transform: {next_node: failure, observation: Placing a warm bottle in the fridge fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          wait: {next_node: transforming, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: place
+        mode: has_target
+        progress: 3
+        abstract_fields: {phase_tag: place, has_target: true}
+        oracle_action: place_target
+        edges:
+          place_target: {next_node: success, observation: Cooled bottle placed in the fridge., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {placement_quality: 1}}
+          misuse_target: {next_node: failure, observation: Misusing the bottle fails., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: carrying, observation: Still need to place it., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+  - task_id: alfworld_train_examine
+    split: train
+    instruction: Navigate to the study and examine the book under the lamp.
+    metadata: {domain: embodied_text, task_type: examine, target_object: book}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You enter the study., progress_delta: 1, state_delta: improved, branch_label: navigation, verifier_signals: {navigation_quality: 1}}
+          navigate_other: {next_node: wrong_room, observation: The basement is irrelevant., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: Nothing in the hallway., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You recover and find the study., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          wait: {next_node: wrong_room, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      kitchen:
+        phase: acquire
+        mode: at_target_room
+        progress: 1
+        abstract_fields: {phase_tag: acquire, has_target: false}
+        oracle_action: pick_target
+        edges:
+          pick_target: {next_node: carrying, observation: You pick up the book., progress_delta: 1, state_delta: improved, branch_label: acquire, verifier_signals: {acquire_quality: 1}}
+          pick_distractor: {next_node: failure, observation: Wrong object fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: kitchen, observation: Nothing new., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: place
+        mode: has_target
+        progress: 2
+        abstract_fields: {phase_tag: place, has_target: true}
+        oracle_action: place_target
+        edges:
+          place_target: {next_node: success, observation: You examine the book under the lamp., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {placement_quality: 1}}
+          misuse_target: {next_node: failure, observation: Misuse fails., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: carrying, observation: Still need to examine it., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
   - task_id: alfworld_eval_heat_food
     split: eval
     instruction: Go to the kitchen, heat the soup, and place it on the table.
@@ -104,6 +262,108 @@ tasks:
           misuse_target: {next_node: failure, observation: Misusing the object fails the task., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
           look_around: {next_node: carrying, observation: You look around but still need to place the object., progress_delta: 0, state_delta: neutral, branch_label: stall}
       success: {phase: done, mode: success, progress: 5, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+  - task_id: alfworld_eval_clean_place
+    split: eval
+    instruction: Go to the laundry room, pick up the towel, clean it, and place it on the rack.
+    metadata: {domain: embodied_text, task_type: clean_place, target_object: towel, target_container: rack}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You enter the laundry room., progress_delta: 1, state_delta: improved, branch_label: navigation, verifier_signals: {navigation_quality: 1}}
+          navigate_other: {next_node: wrong_room, observation: The attic is irrelevant., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: Nothing in the hallway., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You recover and find the laundry room., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          wait: {next_node: wrong_room, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      kitchen:
+        phase: acquire
+        mode: at_target_room
+        progress: 1
+        abstract_fields: {phase_tag: acquire, has_target: false}
+        oracle_action: pick_target
+        edges:
+          pick_target: {next_node: transforming, observation: You pick up the towel., progress_delta: 1, state_delta: improved, branch_label: acquire, verifier_signals: {acquire_quality: 1}}
+          pick_distractor: {next_node: failure, observation: Wrong item fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: kitchen, observation: Nothing new., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      transforming:
+        phase: transform
+        mode: needs_transform
+        progress: 2
+        abstract_fields: {phase_tag: transform, has_target: true}
+        oracle_action: transform_target
+        edges:
+          transform_target: {next_node: carrying, observation: The towel is cleaned., progress_delta: 1, state_delta: improved, branch_label: enabling, enabling: true, verifier_signals: {transform_quality: 1}}
+          skip_transform: {next_node: failure, observation: Placing a dirty towel fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          wait: {next_node: transforming, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: place
+        mode: has_target
+        progress: 3
+        abstract_fields: {phase_tag: place, has_target: true}
+        oracle_action: place_target
+        edges:
+          place_target: {next_node: success, observation: Clean towel placed on the rack., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {placement_quality: 1}}
+          misuse_target: {next_node: failure, observation: Misusing the towel fails., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: carrying, observation: Still need to place the object., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 5, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+      failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
+  - task_id: alfworld_eval_pick_place_far
+    split: eval
+    instruction: Navigate through the living room to the dining room, pick up the vase, and place it on the mantle.
+    metadata: {domain: embodied_text, task_type: pick_place, target_object: vase, target_container: mantle}
+    states:
+      start:
+        phase: navigate
+        mode: hallway
+        progress: 0
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You reach the dining room., progress_delta: 1, state_delta: improved, branch_label: navigation, verifier_signals: {navigation_quality: 1}}
+          navigate_other: {next_node: wrong_room, observation: The pantry is a dead end., progress_delta: -1, state_delta: regressed, branch_label: dead_end, dead_end: true}
+          look_around: {next_node: start, observation: Nothing useful in the hallway., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      wrong_room:
+        phase: navigate
+        mode: wrong_room
+        progress: -1
+        abstract_fields: {phase_tag: navigate, has_target: false}
+        oracle_action: navigate_target
+        edges:
+          navigate_target: {next_node: kitchen, observation: You recover and reach the dining room., progress_delta: 1, state_delta: improved, branch_label: recovery, recovery: true, verifier_signals: {recovery_quality: 1}}
+          wait: {next_node: wrong_room, observation: Waiting changes nothing., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      kitchen:
+        phase: acquire
+        mode: at_target_room
+        progress: 1
+        abstract_fields: {phase_tag: acquire, has_target: false}
+        oracle_action: pick_target
+        edges:
+          pick_target: {next_node: carrying, observation: You pick up the vase., progress_delta: 1, state_delta: improved, branch_label: acquire, verifier_signals: {acquire_quality: 1}}
+          pick_distractor: {next_node: failure, observation: Wrong object fails., terminal: true, progress_delta: -1, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: kitchen, observation: Nothing new., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      carrying:
+        phase: place
+        mode: has_target
+        progress: 2
+        abstract_fields: {phase_tag: place, has_target: true}
+        oracle_action: place_target
+        edges:
+          place_target: {next_node: success, observation: Vase placed on the mantle., terminal: true, success: true, progress_delta: 2, state_delta: improved, branch_label: success, verifier_signals: {placement_quality: 1}}
+          misuse_target: {next_node: failure, observation: Dropping the vase fails., terminal: true, progress_delta: -2, state_delta: regressed, branch_label: failure, dead_end: true}
+          look_around: {next_node: carrying, observation: Still need to place it., progress_delta: 0, state_delta: neutral, branch_label: stall}
+      success: {phase: done, mode: success, progress: 4, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
       failure: {phase: done, mode: failure, progress: -2, abstract_fields: {phase_tag: done, has_target: false}, edges: {}}
   - task_id: alfworld_smoke_pick
     split: smoke
