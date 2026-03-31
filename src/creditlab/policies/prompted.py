@@ -86,7 +86,7 @@ class VLLMServerPolicyBackend(PolicyBackend):
                 {"role": "user", "content": user_msg},
             ],
             "max_tokens": 32,
-            "temperature": 0.0,
+            "temperature": float(self.config.get("temperature", 0.7)),
         }
 
     def _build_custom_payload(
