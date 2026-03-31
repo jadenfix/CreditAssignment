@@ -1,0 +1,75 @@
+name: diagnostic_llm_gcp
+research_objective: validate scorer hierarchy with LLM-generated collection trajectories.
+env:
+  name: diagnostic_branch_lab
+  split: train
+  config: {}
+policy:
+  name: vllm_server
+  config:
+    endpoint: "http://localhost:8000/v1/chat/completions"
+    api_format: openai
+    model: "meta-llama/Llama-3.2-3B-Instruct"
+    timeout_seconds: 30
+    max_retries: 2
+    retry_backoff_seconds: 1.0
+    seed: 7
+trainer:
+  name: outcome_only
+  config: {}
+tracking:
+  backend: local
+  config: {}
+store:
+  sqlite_path: runs/creditlab.sqlite
+  artifact_root: artifacts
+benchmark:
+  name: diagnostic
+  revision: v1
+  manifest_path: benchmarks/diagnostic/v1/tasks.yaml
+  collect_split: train
+  eval_split: eval
+model_backend:
+  name: vllm_server
+  config: {}
+training_backend:
+  name: local_table
+  config: {}
+deployment:
+  profile: gcp_gpu_dev
+  platform: gcp_gpu
+  container_image: creditlab-gpu:latest
+  workspace_dir: /workspace/creditlab
+  data_dir: /data/creditlab
+  gcp_instance_profile: g2-standard-8
+  gcs_sync_uri: gs://creditlab-491502-runs/runs
+paper_export:
+  output_dir: artifacts/paper
+  manuscript_path: paper/manuscript.md
+sweep:
+  enabled: true
+  seeds: [7, 11, 19]
+  safety:
+    allow_gcp_execution: true
+    require_healthy_gpu_for_gcp: true
+    max_total_runs: 24
+    max_failed_runs: 4
+    max_retry_attempts: 2
+    retry_backoff_seconds: 2.0
+    max_total_prompt_tokens: 500000
+    max_total_completion_tokens: 250000
+    max_total_verifier_calls: 50000
+    max_total_wall_clock_seconds: 7200
+    max_estimated_cost_usd: 5.0
+    estimated_prompt_cost_per_1k: 0.0
+    estimated_completion_cost_per_1k: 0.0
+    estimated_instance_cost_per_hour: 0.70
+experiment:
+  seeds: [7, 11, 19]
+  budgets:
+    rollout_count: 20
+    max_turns: 10
+    max_prompt_tokens: 512
+    max_completion_tokens: 128
+    max_verifier_calls: 200
+    wall_clock_seconds: 300

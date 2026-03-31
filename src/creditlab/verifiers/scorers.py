@@ -6,6 +6,21 @@ from typing import Any
 from creditlab.core.models import EpisodeRun, TrainingTarget
 from creditlab.core.utils import action_label
 
+# Default scorer weights — can be overridden via SCORER_WEIGHTS global
+SCORER_WEIGHTS: dict[str, float] = {
+    "verifier_weight": 0.25,
+    "dead_end_weight": 0.5,
+    "pivotal_bonus": 0.75,
+    "recovery_bonus": 0.5,
+    "enabling_bonus": 0.5,
+    "first_turn_bonus": 0.1,
+}
+
+
+def set_scorer_weights(**kwargs: float) -> None:
+    """Override default scorer weights. Used by weight ablation experiments."""
+    SCORER_WEIGHTS.update(kwargs)
+
 
 def outcome_only_transition_score(episode: EpisodeRun, transition_index: int) -> float:
     return 1.0 if episode.success else 0.0
@@ -15,7 +30,7 @@ def _local_branch_bonus(episode: EpisodeRun, transition_index: int) -> float:
     transition = episode.transitions[transition_index]
     verifier_score = sum(event.score for event in transition.verifier_events if event.signal_name != "success")
     dead_end_penalty = sum(1.0 for event in transition.verifier_events if event.signal_name == "dead_end")
-    return 0.25 * verifier_score - 0.5 * dead_end_penalty
+    return SCORER_WEIGHTS["verifier_weight"] * verifier_score - SCORER_WEIGHTS["dead_end_weight"] * dead_end_penalty
 
 
 def branch_aware_transition_score(episode: EpisodeRun, transition_index: int) -> float:
@@ -27,13 +42,13 @@ def hindsight_transition_score(episode: EpisodeRun, transition_index: int) -> fl
     transition_family = episode.task.metadata.get("family")
     bonus = 0.0
     if transition.action.content == episode.task.metadata.get("pivotal_branch"):
-        bonus += 0.75
+        bonus += SCORER_WEIGHTS["pivotal_bonus"]
     if transition_family == "recovery" and any(event.details.get("recovery") for event in transition.verifier_events):
-        bonus += 0.5
+        bonus += SCORER_WEIGHTS["recovery_bonus"]
     if transition_family == "enabling" and any(event.details.get("enabling") for event in transition.verifier_events):
-        bonus += 0.5
+        bonus += SCORER_WEIGHTS["enabling_bonus"]
     if episode.success and transition_index == 0:
-        bonus += 0.1
+        bonus += SCORER_WEIGHTS["first_turn_bonus"]
     return outcome_only_transition_score(episode, transition_index) + bonus
 
 

@@ -97,7 +97,8 @@ class SweepRunner:
 
     def _collect_base_prompted_run(self, run_group_id: str, seed: int) -> str:
         collect_config = self.config.model_copy(deep=True)
-        collect_config.policy.name = "prompted"
+        if collect_config.policy.name not in ("vllm_server",):
+            collect_config.policy.name = "prompted"
         collect_config.policy.config["seed"] = seed
         env = create_env(collect_config)
         policy = create_policy(collect_config.policy.name, collect_config.policy.config, collect_config.store.artifact_root)

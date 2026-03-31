@@ -53,10 +53,56 @@ class VLLMServerPolicyBackend(PolicyBackend):
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config = config or {}
         self.endpoint = self.config.get("endpoint", "http://localhost:8000/generate")
+        self.model = self.config.get("model", "default")
+        self.api_format = self.config.get("api_format", "custom")
         self.timeout_seconds = float(self.config.get("timeout_seconds", 20))
         self.max_retries = int(self.config.get("max_retries", 2))
         self.retry_backoff_seconds = float(self.config.get("retry_backoff_seconds", 0.5))
         self.fallback = PromptedPolicyBackend(config={"exploration_rate": 0.0, **self.config})
+
+    def _build_openai_payload(
+        self,
+        task: TaskSpec,
+        state: StateSnapshot,
+        history: Sequence[Any],
+        budget: BudgetConfig,
+    ) -> dict[str, Any]:
+        available = state.payload.get("available_actions", [])
+        history_text = ", ".join(
+            getattr(getattr(item, "action", None), "content", "?") for item in history
+        ) or "none"
+        user_msg = (
+            f"Task: {task.instruction}\n"
+            f"Current state: {state.abstract_state}\n"
+            f"Actions taken so far: {history_text}\n"
+            f"Available actions: {available}\n\n"
+            f"Choose exactly one action from the available list. "
+            f"Respond with only the action name, nothing else."
+        )
+        return {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are an agent that selects actions to complete tasks. Respond with exactly one action name from the available list, nothing else."},
+                {"role": "user", "content": user_msg},
+            ],
+            "max_tokens": 32,
+            "temperature": 0.0,
+        }
+
+    def _build_custom_payload(
+        self,
+        task: TaskSpec,
+        state: StateSnapshot,
+        history: Sequence[Any],
+        budget: BudgetConfig,
+    ) -> dict[str, Any]:
+        return {
+            "instruction": task.instruction,
+            "available_actions": state.payload.get("available_actions", []),
+            "history": [getattr(getattr(item, "action", None), "content", None) for item in history],
+            "state": state.abstract_state,
+            "max_tokens": budget.max_completion_tokens,
+        }
 
     def act(
         self,
@@ -65,13 +111,10 @@ class VLLMServerPolicyBackend(PolicyBackend):
         budget: BudgetConfig,
         task: TaskSpec,
     ) -> ActionEvent:
-        payload = {
-            "instruction": task.instruction,
-            "available_actions": state.payload.get("available_actions", []),
-            "history": [getattr(getattr(item, "action", None), "content", None) for item in history],
-            "state": state.abstract_state,
-            "max_tokens": budget.max_completion_tokens,
-        }
+        if self.api_format == "openai":
+            payload = self._build_openai_payload(task, state, history, budget)
+        else:
+            payload = self._build_custom_payload(task, state, history, budget)
         request = urllib.request.Request(
             self.endpoint,
             method="POST",
@@ -92,6 +135,8 @@ class VLLMServerPolicyBackend(PolicyBackend):
                     metadata={
                         "policy": self.policy_name,
                         "endpoint": self.endpoint,
+                        "model": self.model,
+                        "api_format": self.api_format,
                         "attempts": attempt,
                         "fallback_used": False,
                     },
@@ -108,6 +153,7 @@ class VLLMServerPolicyBackend(PolicyBackend):
                     **fallback_action.metadata,
                     "policy": self.policy_name,
                     "endpoint": self.endpoint,
+                    "model": self.model,
                     "attempts": self.max_retries + 1,
                     "fallback_used": True,
                     "fallback_policy": self.fallback.policy_name,
@@ -116,14 +162,33 @@ class VLLMServerPolicyBackend(PolicyBackend):
             }
         )
 
+    def _parse_action_from_text(self, text: str, available: list[str]) -> str | None:
+        cleaned = text.strip().strip("\"'`.").lower()
+        for action in available:
+            if action.lower() == cleaned:
+                return action
+        for action in available:
+            if action.lower() in cleaned:
+                return action
+        return None
+
     def _validate_choice(self, body: dict[str, Any], state: StateSnapshot) -> str:
         available_actions = list(state.payload.get("available_actions", []))
+        if self.api_format == "openai":
+            choices = body.get("choices", [])
+            if not choices:
+                raise ValueError("OpenAI response has no choices")
+            text = choices[0].get("message", {}).get("content", "") or choices[0].get("text", "")
+            choice = self._parse_action_from_text(text, available_actions)
+            if choice:
+                return choice
+            raise ValueError(f"could not parse action from LLM response: {text!r}")
         choice = body.get("action")
         if choice in available_actions:
             return str(choice)
-        if body.get("action") is None:
+        if choice is None:
             raise ValueError("response body did not include an action")
-        raise ValueError(f"response action {body.get('action')!r} is not valid for this state")
+        raise ValueError(f"response action {choice!r} is not valid for this state")
 
     def _build_action(
         self,
