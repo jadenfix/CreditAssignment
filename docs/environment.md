@@ -80,15 +80,17 @@ sha256sum benchmarks/alfworld/v1/tasks.yaml
 
 All reported results are traceable to specific run group IDs in `runs/creditlab.sqlite`:
 
-| Experiment | Run Group | Seeds | Rollouts | Platform |
-|------------|-----------|-------|----------|----------|
-| Diagnostic (heuristic, 7-seed) | group_f410ed95cc83 | 7 | 50 | Local |
-| Diagnostic (heuristic, GCP) | group_a0acb246112e | 7 | 50 | GCP |
-| WebShop (heuristic) | group_b25fdde347d6 | 7 | 50 | Local |
-| ALFWorld (heuristic) | group_24296be59b90 | 7 | 50 | Local |
-| LLM collection (Qwen2.5-3B) | TBD | 3 | 20 | GCP |
-| Exploration ablation ε=0.3 | per-run | 3 | 50 | Local |
-| Exploration ablation ε=0.7 | per-run | 3 | 50 | Local |
+| Experiment | Run Group | Seeds | Rollouts | Platform | Key Result |
+|------------|-----------|-------|----------|----------|------------|
+| **Stochastic (main result)** | group_2cfb2caf7e7d | 15 | 50 | Local | combined=1.00, branch_aware=0.98, outcome_only=0.24 |
+| Stochastic (GCP reproduction) | group_d92fc9971c06 | 15 | 50 | GCP | Exact match with local |
+| Diagnostic (deterministic) | group_f410ed95cc83 | 7 | 50 | Local | combined=1.00, branch_aware=0.97, outcome_only=0.51 |
+| Diagnostic (GCP) | group_a0acb246112e | 7 | 50 | GCP | Exact match with local |
+| WebShop (deterministic) | group_b25fdde347d6 | 7 | 50 | Local | combined=1.00, branch_aware=1.00, outcome_only=0.71 |
+| ALFWorld (deterministic) | group_24296be59b90 | 7 | 50 | Local | combined=1.00, branch_aware=1.00, outcome_only=0.00 |
+| LLM collection (Qwen2.5-3B) | group_e904a833fee4 | 3 | 20 | GCP | All trained=1.00, LLM baseline=0.83 |
+| Exploration ablation ε=0.3 | per-run | 3 | 50 | Local | Ranking stable |
+| Exploration ablation ε=0.7 | per-run | 3 | 50 | Local | Ranking stable |
 
 ## Randomness and Reproducibility
 
