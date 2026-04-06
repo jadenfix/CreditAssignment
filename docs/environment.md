@@ -71,6 +71,7 @@ git log --oneline -1
 pip show pydantic sqlalchemy pyarrow polars typer pyyaml pytest | grep -E "^(Name|Version)"
 
 # Verify benchmark manifests are unchanged
+sha256sum benchmarks/stochastic/v1/tasks.yaml
 sha256sum benchmarks/diagnostic/v1/tasks.yaml
 sha256sum benchmarks/webshop/v1/tasks.yaml
 sha256sum benchmarks/alfworld/v1/tasks.yaml

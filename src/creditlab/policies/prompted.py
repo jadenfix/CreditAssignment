@@ -68,24 +68,50 @@ class VLLMServerPolicyBackend(PolicyBackend):
         budget: BudgetConfig,
     ) -> dict[str, Any]:
         available = state.payload.get("available_actions", [])
-        history_text = ", ".join(
-            getattr(getattr(item, "action", None), "content", "?") for item in history
-        ) or "none"
-        user_msg = (
-            f"Task: {task.instruction}\n"
-            f"Current state: {state.abstract_state}\n"
-            f"Actions taken so far: {history_text}\n"
-            f"Available actions: {available}\n\n"
-            f"Choose exactly one action from the available list. "
-            f"Respond with only the action name, nothing else."
-        )
+
+        # Use observation_text for real environments, abstract_state for manifests
+        obs_text = state.payload.get("observation_text")
+        if obs_text:
+            # Real environment mode (e.g., ALFWorld) — use natural language obs
+            instruction = state.payload.get("instruction", task.instruction)
+            history_lines = []
+            for item in history:
+                act = getattr(getattr(item, "action", None), "content", None)
+                obs = getattr(getattr(item, "observation", None), "text", None)
+                if act:
+                    history_lines.append(f"> {act}")
+                if obs:
+                    history_lines.append(obs[:200])
+            history_block = "\n".join(history_lines[-10:]) if history_lines else "(start of episode)"
+            user_msg = (
+                f"Task: {instruction}\n\n"
+                f"History:\n{history_block}\n\n"
+                f"Observation: {obs_text}\n\n"
+                f"Admissible actions: {', '.join(available)}\n\n"
+                f"Choose exactly one action from the admissible list. "
+                f"Respond with only the action text, nothing else."
+            )
+        else:
+            # Manifest mode — use abstract state
+            history_text = ", ".join(
+                getattr(getattr(item, "action", None), "content", "?") for item in history
+            ) or "none"
+            user_msg = (
+                f"Task: {task.instruction}\n"
+                f"Current state: {state.abstract_state}\n"
+                f"Actions taken so far: {history_text}\n"
+                f"Available actions: {available}\n\n"
+                f"Choose exactly one action from the available list. "
+                f"Respond with only the action name, nothing else."
+            )
+
         return {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are an agent that selects actions to complete tasks. Respond with exactly one action name from the available list, nothing else."},
+                {"role": "system", "content": "You are an agent that selects actions to complete tasks. Respond with exactly one action from the admissible list, nothing else."},
                 {"role": "user", "content": user_msg},
             ],
-            "max_tokens": 32,
+            "max_tokens": 64,
             "temperature": float(self.config.get("temperature", 0.7)),
         }
 

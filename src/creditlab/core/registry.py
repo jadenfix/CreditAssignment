@@ -4,7 +4,6 @@ from pathlib import Path
 
 from creditlab.core.config import ExperimentConfig
 from creditlab.envs.alfworld import ALFWorldEnv
-from creditlab.envs.code_benchmarks import LiveCodeBenchEnv, SWEBenchLiteEnv
 from creditlab.envs.diagnostic import DiagnosticBranchLabEnv
 from creditlab.envs.stochastic import StochasticEnv
 from creditlab.envs.webshop import WebShopEnv
@@ -32,10 +31,12 @@ def create_env(config: ExperimentConfig):
         return ALFWorldEnv(manifest_path=manifest, task_limit=task_limit)
     if config.env.name == "stochastic":
         return StochasticEnv(manifest_path=manifest, task_limit=task_limit)
-    if config.env.name == "livecodebench":
-        return LiveCodeBenchEnv(manifest_path=manifest, task_limit=task_limit)
-    if config.env.name == "swebench_lite":
-        return SWEBenchLiteEnv(manifest_path=manifest, task_limit=task_limit)
+    if config.env.name == "alfworld_real":
+        from creditlab.envs.alfworld_real import RealALFWorldEnv
+        return RealALFWorldEnv(
+            config=config.env.config,
+            task_limit=task_limit,
+        )
     raise ValueError(f"unknown environment: {config.env.name}")
 
 

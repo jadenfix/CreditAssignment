@@ -1,43 +1,47 @@
 # CreditLab
 
-Cornerstone research repo for branch-aware hindsight credit assignment experiments under matched budgets.
+Research scaffold for branch-aware hindsight credit assignment experiments under matched budgets.
 
 ## Core Claim
 
-CreditLab is built to test whether branch-aware plus hindsight credit shifts probability mass toward better downstream branches, improves search quality, and improves downstream task success over outcome-only training under equal collection budgets.
+CreditLab tests whether branch-aware plus hindsight credit assignment shifts probability mass toward better downstream branches, improving policy quality over outcome-only training under equal collection budgets.
 
 ## What Exists Now
 
-- Versioned benchmark manifests for `diagnostic`, `webshop`, `alfworld`, `livecodebench`, and `swebench_lite`.
+- Versioned benchmark manifests for `diagnostic`, `webshop`, `alfworld`, and `stochastic`.
+- Real ALFWorld environment adapter (`alfworld_real`) for live benchmark evaluation.
 - Manifest-driven env adapters with shared verifier-first state transitions.
 - SQLite + Parquet experiment store with run-group, condition, seed, benchmark, and deployment metadata.
 - Scored table trainers for `outcome_only`, `branch_aware`, `hindsight`, and `combined`.
-- Sweep execution for the six paper conditions.
+- Automatic verifier signal extraction from environment observations.
+- Sweep execution for the paper conditions with safety rails.
 - Aggregate reporting, budget-parity checks, failure analysis, and paper-asset export.
-- AWS GPU Docker lane with host-check tooling, bootstrap scripts, CPU/GPU Dockerfiles, and compose wiring.
-- GCP GPU Docker lane with L4 support, GCS sync, and parallel bootstrap scripts.
+- GCP GPU lane with NVIDIA L4 support, GCS sync, and bootstrap scripts.
+- LLM collection via vLLM (Qwen2.5-3B-Instruct) with OpenAI-compatible API.
 
 ## Setup
 
 ```bash
 pip install -e ".[dev]"   # install creditlab + pytest (editable)
-make test                 # verify: 11/11 tests should pass
+make test                 # verify: all tests should pass
 ```
 
-Or use `./setup.sh` for a guided install with Python version check.
+Optional dependencies:
+```bash
+pip install -e ".[paper]"      # matplotlib for publication figures
+pip install -e ".[alfworld]"   # real ALFWorld benchmark
+pip install -e ".[training]"   # LoRA fine-tuning (transformers, peft, trl)
+```
 
 ## Main Commands
 
 ```bash
-creditlab validate-config --config configs/diagnostic_paper.yaml
+creditlab validate-config --config configs/diagnostic_paper_local.yaml
 creditlab collect --config configs/diagnostic_smoke.yaml
-creditlab train --config configs/diagnostic_outcome_only.yaml --scorer outcome_only
-creditlab replay --run-id <run_id> --config configs/diagnostic_smoke.yaml --scorer branch_aware
-creditlab report --run-id <run_id> --config configs/diagnostic_smoke.yaml
-creditlab sweep --config configs/diagnostic_paper.yaml
-creditlab aggregate --config configs/diagnostic_paper.yaml --run-group-id <group_id>
-creditlab export-results --config configs/diagnostic_paper.yaml --run-group-id <group_id>
-creditlab render-paper-assets --config configs/diagnostic_paper.yaml --run-group-id <group_id>
+creditlab sweep --config configs/stochastic_paper_local.yaml
+creditlab aggregate --config configs/stochastic_paper_local.yaml --run-group-id <group_id>
+creditlab export-results --config configs/stochastic_paper_local.yaml --run-group-id <group_id>
+creditlab render-paper-assets --config configs/stochastic_paper_local.yaml --run-group-id <group_id>
 creditlab host-check --output artifacts/host_report.json
 ```
 
@@ -45,61 +49,47 @@ Quick workflow:
 
 ```bash
 make smoke       # validate config + collect one run (seed=7, local)
-make run-paper   # sweep all 6 paper conditions (local, diagnostic)
+make run-paper   # sweep all paper conditions (local)
 make clean-data  # archive + wipe runs/ and artifacts/ for a fresh slate
 ```
 
 ## Benchmarks
 
-- `diagnostic`: explicit pivotal, dead-end, enabling, and recovery tasks for method debugging.
-- `webshop`: shopping-task benchmark manifest for branchy long-horizon decisions.
-- `alfworld`: text embodied tasks for navigation, enabling steps, and recovery.
-- `livecodebench`: first evaluation-only code transfer benchmark.
-- `swebench_lite`: heavier code benchmark after inner-loop results are stable.
+- `stochastic`: **primary evaluation** — 4 task families with probabilistic transitions (60-90% success probability).
+- `diagnostic`: controlled ablation with 5 task families isolating specific failure modes.
+- `webshop`: shopping-task structural abstraction for cross-benchmark transfer.
+- `alfworld`: embodied task structural abstraction for cross-benchmark transfer.
+- `alfworld_real`: live ALFWorld TextWorld environment (requires `pip install alfworld`).
 
-## AWS Path
+## GCP Path (Recommended)
 
-- Recommended host: `Ubuntu 22.04` on `g6e.4xlarge`
-- Budget fallback: `g6.4xlarge`
-- Escalation only if needed: `p5.4xlarge`
-- Setup guide: [docs/aws_gpu_setup.md](/Users/jadenfix/RLLL/docs/aws_gpu_setup.md)
-- Bootstrap scripts: `scripts/aws/`
-- Compose stack: `docker/docker-compose.aws.yml`
-
-## GCP Path
-
-- Recommended host: `g2-standard-8` with 1× NVIDIA L4 (~$0.70/hr on-demand, ~$0.25/hr spot)
+- Host: `g2-standard-8` with 1x NVIDIA L4 (~$0.70/hr on-demand)
 - Zone: `us-central1-a`
 - Setup guide: [docs/gcp_gpu_setup.md](docs/gcp_gpu_setup.md)
 - Bootstrap scripts: `scripts/gcp/`
 - Compose stack: `docker/docker-compose.gcp.yml`
-- Config: `configs/diagnostic_paper_gcp.yaml`
 
 ## Safety Rails
 
-- AWS-backed `collect`, `evaluate`, and `sweep` commands fail closed unless `sweep.safety.allow_aws_execution` is explicitly set to `true` in the config you are using.
-- GCP-backed sweep commands fail closed unless `sweep.safety.allow_gcp_execution` is explicitly set to `true`. Run `creditlab host-check` on the GCP host before enabling GCP configs.
-- Sweep execution enforces run-count, token, verifier-call, wall-clock, failure-count, and estimated-cost ceilings before launching the next run.
-- `vllm_server` retries transient request failures with bounded backoff and falls back to the local prompted policy if the server stays unhealthy or returns an invalid action.
-- Run `uv run creditlab host-check` on the target AWS host before enabling the AWS configs; the default paper configs require a healthy Docker + NVIDIA + CUDA container probe.
-- Keep the paper configs conservative first, then raise ceilings intentionally after a successful smoke sweep on the target machine.
+- GCP-backed sweep commands fail closed unless `sweep.safety.allow_gcp_execution` is `true`.
+- Sweep execution enforces run-count, token, verifier-call, wall-clock, failure-count, and estimated-cost ceilings.
+- `vllm_server` retries transient failures with bounded backoff and falls back to the prompted policy.
+- Run `creditlab host-check` on the GCP host before enabling cloud configs.
 
 ## Repo Layout
 
 ```text
-benchmarks/     versioned benchmark manifests
+benchmarks/     versioned benchmark manifests (diagnostic, webshop, alfworld, stochastic)
 configs/        smoke, benchmark, and paper configs
-docker/         cpu/gpu images, aws compose file, and gcp compose file
-docs/           architecture, aws setup, and gcp setup
-paper/          manuscript scaffold
-scripts/aws/    AWS host bootstrap and sync helpers
+docker/         cpu/gpu images and compose files
+docs/           architecture, environment spec, reproducibility guide
+paper/          manuscript
 scripts/gcp/    GCP host bootstrap and sync helpers
+scripts/aws/    AWS host bootstrap (legacy, retained for reproducibility)
 src/creditlab/  experiment system
 tests/          local verification
 ```
 
-## Notes
+## Reproducibility
 
-- The benchmark adapters are manifest-driven so the repo stays reproducible even when the heavyweight public benchmarks are integrated in stages.
-- The full experiment path is Linux GPU first; macOS remains a smoke-run and analysis machine.
-- Local structured artifacts in `artifacts/` are still the source of truth even when W&B is enabled.
+All paper results are reproduced on both local (macOS) and cloud (GCP) infrastructure with exact numerical match. See [docs/reproducibility.md](docs/reproducibility.md) for step-by-step instructions and [docs/environment.md](docs/environment.md) for exact software/hardware versions.

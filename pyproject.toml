@@ -27,6 +27,17 @@ wandb = [
 paper = [
   "matplotlib>=3.8,<4",
 ]
+alfworld = [
+  "alfworld>=0.3",
+]
+training = [
+  "transformers>=4.40",
+  "peft>=0.10",
+  "trl>=0.8",
+  "accelerate>=0.29",
+  "bitsandbytes>=0.43",
+  "datasets>=2.14",
+]
 
 [project.scripts]
 creditlab = "creditlab.cli.main:app"

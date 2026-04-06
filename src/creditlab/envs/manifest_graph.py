@@ -210,14 +210,4 @@ class StochasticEnv(GraphManifestEnv):
     default_manifest = Path("benchmarks/stochastic/v1/tasks.yaml")
 
 
-class LiveCodeBenchEnv(GraphManifestEnv):
-    env_name = "livecodebench"
-    benchmark_name = "livecodebench"
-    default_manifest = Path("benchmarks/livecodebench/v1/tasks.yaml")
-
-
-class SWEBenchLiteEnv(GraphManifestEnv):
-    env_name = "swebench_lite"
-    benchmark_name = "swebench_lite"
-    default_manifest = Path("benchmarks/swebench_lite/v1/tasks.yaml")
 

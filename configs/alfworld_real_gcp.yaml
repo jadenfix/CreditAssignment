@@ -1,0 +1,79 @@
+name: alfworld_real_gcp
+research_objective: validate branch-aware credit assignment on real ALFWorld benchmark with LLM collection and LoRA fine-tuning.
+env:
+  name: alfworld_real
+  split: train
+  config:
+    signal_mode: auto
+policy:
+  name: vllm_server
+  config:
+    endpoint: http://localhost:8000/v1/chat/completions
+    api_format: openai
+    model: Qwen/Qwen2.5-3B-Instruct
+    temperature: 0.7
+    max_retries: 2
+    timeout_seconds: 30
+    exploration_rate: 0.0
+    seed: 7
+trainer:
+  name: outcome_only
+  config: {}
+tracking:
+  backend: local
+  config: {}
+store:
+  sqlite_path: runs/creditlab.sqlite
+  artifact_root: artifacts
+benchmark:
+  name: alfworld_real
+  revision: v1
+  manifest_path: null
+  collect_split: train
+  eval_split: eval
+  task_limit: 50
+model_backend:
+  name: vllm_server
+  config:
+    model: Qwen/Qwen2.5-3B-Instruct
+training_backend:
+  name: local_table
+  config: {}
+deployment:
+  profile: gcp_gpu_dev
+  platform: gcp_gpu
+  container_image: creditlab-gpu:latest
+  workspace_dir: /workspace/creditlab
+  data_dir: /data/creditlab
+  gcp_instance_profile: g2-standard-8
+  gcs_sync_uri: gs://creditlab-491502-runs/runs
+paper_export:
+  output_dir: artifacts/paper
+  manuscript_path: paper/manuscript.md
+sweep:
+  enabled: true
+  seeds: [7, 11, 19, 23, 31]
+  safety:
+    allow_gcp_execution: true
+    require_healthy_gpu_for_gcp: true
+    max_total_runs: 60
+    max_failed_runs: 10
+    max_retry_attempts: 2
+    retry_backoff_seconds: 2.0
+    max_total_prompt_tokens: 5000000
+    max_total_completion_tokens: 2000000
+    max_total_verifier_calls: 500000
+    max_total_wall_clock_seconds: 43200
+    max_estimated_cost_usd: 30.0
+    estimated_prompt_cost_per_1k: 0.0
+    estimated_completion_cost_per_1k: 0.0
+    estimated_instance_cost_per_hour: 0.70
+experiment:
+  seeds: [7, 11, 19, 23, 31]
+  budgets:
+    rollout_count: 200
+    max_turns: 30
+    max_prompt_tokens: 4096
+    max_completion_tokens: 128
+    max_verifier_calls: 1000
+    wall_clock_seconds: 3600
