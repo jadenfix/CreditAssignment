@@ -28,7 +28,7 @@ paper = [
   "matplotlib>=3.8,<4",
 ]
 alfworld = [
-  "alfworld>=0.3",
+  "alfworld==0.4.2",
 ]
 training = [
   "transformers>=4.40",

@@ -1,5 +1,5 @@
 name: alfworld_real_gcp
-research_objective: validate branch-aware credit assignment on real ALFWorld benchmark with LLM collection and LoRA fine-tuning.
+research_objective: validate branch-aware credit assignment on real ALFWorld benchmark with LLM-collected trajectories.
 env:
   name: alfworld_real
   split: train
@@ -10,7 +10,7 @@ policy:
   config:
     endpoint: http://localhost:8000/v1/chat/completions
     api_format: openai
-    model: Qwen/Qwen2.5-3B-Instruct
+    model: Qwen/Qwen2.5-7B-Instruct
     temperature: 0.7
     max_retries: 2
     timeout_seconds: 30
@@ -31,11 +31,11 @@ benchmark:
   manifest_path: null
   collect_split: train
   eval_split: eval
-  task_limit: 50
+  task_limit: 80
 model_backend:
   name: vllm_server
   config:
-    model: Qwen/Qwen2.5-3B-Instruct
+    model: Qwen/Qwen2.5-7B-Instruct
 training_backend:
   name: local_table
   config: {}
@@ -47,16 +47,13 @@ deployment:
   data_dir: /data/creditlab
   gcp_instance_profile: g2-standard-8
   gcs_sync_uri: gs://creditlab-491502-runs/runs
-paper_export:
-  output_dir: artifacts/paper
-  manuscript_path: paper/manuscript.md
 sweep:
   enabled: true
-  seeds: [7, 11, 19, 23, 31]
+  seeds: [7, 11, 19]
   safety:
     allow_gcp_execution: true
     require_healthy_gpu_for_gcp: true
-    max_total_runs: 60
+    max_total_runs: 30
     max_failed_runs: 10
     max_retry_attempts: 2
     retry_backoff_seconds: 2.0
@@ -69,9 +66,9 @@ sweep:
     estimated_completion_cost_per_1k: 0.0
     estimated_instance_cost_per_hour: 0.70
 experiment:
-  seeds: [7, 11, 19, 23, 31]
+  seeds: [7, 11, 19]
   budgets:
-    rollout_count: 200
+    rollout_count: 50
     max_turns: 30
     max_prompt_tokens: 4096
     max_completion_tokens: 128

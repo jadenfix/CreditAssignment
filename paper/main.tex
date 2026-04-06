@@ -1,0 +1,490 @@
+\documentclass[11pt]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{natbib}
+\usepackage[margin=1in]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+\title{\textbf{Branch-Aware Hindsight Credit Assignment\\for Language-Model Agents Under Matched Budgets}}
+
+\author{
+  Jaden Fix \\
+  \texttt{jadenfix@example.com}
+}
+
+\date{}
+
+\begin{document}
+\maketitle
+
+% ==================================================================
+\begin{abstract}
+Outcome-only credit assignment---scoring every action in a successful episode by its terminal reward---remains the default training signal for language-model agents. We identify a specific, mechanistic failure mode of this approach that we term \emph{loop-action bias}: when a stall action that returns the agent to a previously visited state appears in a successful episode, it inherits the same positive credit as the pivotal action that actually drove progress. In stochastic environments where pivotal actions can fail probabilistically, this bias is compounded by \emph{stochastic failure masking}---a failed pivotal action leaves the agent in the same state as a stall, making the two indistinguishable under outcome-only scoring.
+
+We propose two complementary offline scorers that leverage per-transition verifier signals to resolve this conflation: a \emph{branch-aware} scorer that rewards observable progress signals and penalizes dead-end transitions, and a \emph{hindsight} scorer that retrospectively assigns bonuses based on categorical branch labels. We show that these scorers have complementary blind spots and that a simple \emph{combined} scorer resolves both.
+
+We evaluate on a stochastic benchmark where pivotal actions succeed 60--90\% of the time (15 seeds, 50 rollouts), finding that outcome-only scoring produces policies far worse than the unlearned baseline ($0.24$ vs.\ $0.79$), while the combined scorer achieves perfect success ($1.00$). We then measure training signal quality on the real ALFWorld benchmark \citep{shridhar2021alfworld} with two language models---Claude Haiku~4.5 ($30.0\% \pm 2.3\%$ success) and Qwen2.5-7B-Instruct ($16.7\% \pm 3.5\%$ success)---using automatically extracted verifier signals from observation text diffs. The branch-aware scorer differentiates $2.6$--$9.4\times$ more states than outcome-only, with the advantage largest for the weaker model where outcome-only has almost no signal. All controlled experiments are reproduced on both local and cloud infrastructure.
+\end{abstract}
+
+% ==================================================================
+\section{Introduction}
+\label{sec:intro}
+
+A central challenge in training language-model agents for sequential decision-making is the \emph{credit assignment problem}: given a trajectory that eventually succeeds or fails, which individual actions were responsible for the outcome? The prevailing approach in reinforcement learning from human feedback \citep[RLHF;][]{ouyang2022training} and outcome-based reward modeling \citep{cobbe2021training} assigns a single scalar reward at the end of an episode and propagates it uniformly to all preceding actions. This is effective when episodes are short, but in longer-horizon agent settings---web navigation, multi-tool code generation, embodied task planning---episodes routinely contain actions that are irrelevant, redundant, or actively counterproductive alongside a smaller number of genuinely pivotal decisions.
+
+Recent work has demonstrated that denser reward signals improve agent training. Process reward models \citep{lightman2023lets,uesato2022solving,setlur2024rewarding} provide step-level supervision for mathematical reasoning. Several concurrent efforts extend this to LLM agents: \citet{tan2026hindsight} use an LLM critic for hindsight credit assignment on WebShop and ALFWorld; \citet{choudhury2025process} propose process reward models for agent training; \citet{song2024trial} use contrastive trajectory pairs from exploration failures; \citet{zhang2025criticsearch} introduce a retrospective critic for fine-grained credit in search agents; and \citet{lu2026hisr} propose segment-level process rewards modulated by hindsight information. These approaches establish that denser rewards help, but they generally demonstrate improvement without characterizing the specific mechanism by which outcome-only scoring fails.
+
+In this paper, we provide that mechanistic characterization. We identify \textbf{loop-action bias} as a concrete failure mode of outcome-only scoring. Consider an agent navigating a stochastic environment where a pivotal action (e.g., unlocking a gate) succeeds 75\% of the time and a stall action (e.g., rattling the gate) always returns the agent to the same state. When the pivotal action fails, the agent remains in the same state as if it had taken the stall action---indistinguishable under outcome-only scoring. Over many episodes, the pivotal action's average credit is diluted by its failures while the stall action's credit is inflated by episodes that eventually succeed despite the stall. The trained policy then preferentially selects stall actions, producing long trajectories that exhaust the turn budget.
+
+We propose two complementary scorers that leverage transition-level verifier signals:
+\begin{itemize}[nosep]
+  \item \textbf{Branch-aware scoring} adds bonuses proportional to verifier signals and penalties for dead-end transitions, breaking the tie between pivotal and stall actions by rewarding observable progress.
+  \item \textbf{Hindsight scoring} retrospectively assigns bonuses based on categorical branch labels (pivotal, enabling, recovery), capturing causal importance that instantaneous verifier signals may miss.
+\end{itemize}
+We further show that these two scorers have complementary failure modes, and that a simple \textbf{combined scorer} integrating both eliminates both blind spots without requiring a learned critic or additional model inference.
+
+\paragraph{Contributions.}
+\begin{enumerate}[nosep]
+  \item A mechanistic analysis of loop-action bias as a named failure mode, showing it causes policies to perform \emph{worse than the unlearned baseline} in stochastic environments.
+  \item A stochastic benchmark with four task families producing results in the $0.24$--$1.00$ range across 15 seeds---comparable to difficulty ranges in concurrent work \citep{tan2026hindsight,choudhury2025process,song2024trial}.
+  \item Validation on real ALFWorld \citep{shridhar2021alfworld} with two LLMs of different capability levels, using automatically extracted verifier signals from observation text diffs---showing that branch-aware scoring produces substantially more informative training signal, with the advantage being \emph{larger} for weaker models.
+  \item The finding that branch-aware and hindsight scoring address structurally distinct failure modes: on controlled benchmarks where both signal types are available, a combined scorer resolves both; on real environments where only numerical signals are extractable, branch-aware alone captures the benefit.
+  \item Full reproducibility on both local (macOS) and cloud (GCP g2-standard-8, NVIDIA L4) infrastructure.
+\end{enumerate}
+
+% ==================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Process reward models for reasoning.}
+\citet{lightman2023lets} demonstrated that human step-level annotations substantially improve mathematical reasoning, corroborated by \citet{uesato2022solving}. Math-Shepherd \citep{wang2024math} generates step-level labels automatically; \citet{luo2024improve} employ Monte Carlo estimation; \citet{setlur2024rewarding} study scaling automated process verifiers. Step-DPO \citep{lai2024step} extends preference optimization to individual steps. Our work differs in setting: agent actions in structured environments rather than reasoning steps.
+
+\paragraph{Credit assignment for LLM agents.}
+\citet{tan2026hindsight} introduce HCAPO, using an LLM as a post-hoc critic---the closest work to our hindsight component. \citet{choudhury2025process} proposes process reward models for agent training. \citet{song2024trial} develop ETO using contrastive trajectory pairs. \citet{ge2026leafe} distill corrective experience from alternative branches. \citet{wang2026mira} introduce MiRA for milestone reward shaping. \citet{kong2026infopo} propose InfoPO for turn-level counterfactual rewards. \citet{chen2025gui} apply step-level verification to GUI agents.
+
+\citet{zhang2025criticsearch} introduce CriticSearch, using a retrospective critic with privileged trajectory information. \citet{lu2026hisr} propose HISR with segment-level process rewards modulated by hindsight likelihood ratios. \citet{feng2026rewardflow} present RewardFlow, propagating rewards on state graphs. \citet{fan2026agentprocessbench} provide AgentProcessBench, the first benchmark with human step-level annotations for tool-using agents.
+
+Our work is distinct in three respects: (1)~a specific mechanistic diagnosis rather than aggregate improvement, (2)~environment-native verifier signals that can be automatically extracted rather than a learned critic, and (3)~demonstrated complementary failure modes between branch-aware and hindsight scoring.
+
+\paragraph{Other related work.}
+\citet{snell2024scaling} showed PRMs can guide test-time compute allocation. \citet{zhou2024language} combine LLM agents with MCTS. DeepSeek-R1 \citep{deepseek2025} demonstrates RL for extended reasoning. The credit assignment problem is foundational in RL \citep{sutton2018reinforcement}; \citet{pignatelli2023survey} survey modern approaches. ReAct \citep{yao2022react} established interleaved reasoning and acting; Reflexion \citep{shinn2023reflexion} uses verbal self-reflection. HCAPO \citep{tan2026hindsight} is the most directly related hindsight method; our scorer uses pre-existing branch labels rather than a learned critic.
+
+% ==================================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{Environment Model}
+
+Each task is a directed graph $G = (S, E)$ where states $s \in S$ carry an abstract representation $\phi(s)$ and available actions $A(s)$. Each edge $e = (s, a, s')$ carries an observation string, a branch label $\ell(e)$, boolean flags, a verifier signal vector $v(e) \in \mathbb{R}^k$, and a progress delta $\Delta p(e) \in \{-2, \ldots, 2\}$.
+
+\textbf{Stochastic transitions.} Edges may specify a success probability $p \in (0,1]$. When $p < 1$, the action succeeds with probability $p$ (transitioning to the intended state with full verifier signals) and fails with probability $1-p$ (transitioning to a fallback state with no verifier signal).
+
+\textbf{State abstraction.} $\phi(s)$ captures structural role while discarding task-specific details. States with the same $\phi(s)$ produce the same hash, enabling cross-task transfer.
+
+\subsection{Automatic Verifier Signal Extraction}
+
+For real environments where hand-authored labels are unavailable, we extract verifier signals from observation text:
+\begin{enumerate}[nosep]
+  \item \textbf{State-diff detection.} High text similarity ($> 0.9$) combined with error patterns emits a dead-end signal ($-1.0$).
+  \item \textbf{Progress heuristics.} Room navigation emits $+0.5$; inventory changes emit $+1.0$.
+  \item \textbf{Repetition detection.} Same observation $\geq 3$ times emits a repetition penalty ($-0.5$), directly targeting loop-action bias.
+\end{enumerate}
+
+\subsection{Offline Scorers}
+
+Given episode $\tau$ with outcome $y \in \{0,1\}$, each scorer assigns score $r_i$ to transition $(s_i, a_i, s_{i+1})$:
+\begin{align}
+  \text{Outcome-only:}\quad & r_i = y \\
+  \text{Branch-aware:}\quad & r_i = y + w_v \textstyle\sum_j v_j(e_i) - w_d \textstyle\sum_j \mathbf{1}[\text{dead\_end}_j(e_i)] \\
+  \text{Hindsight:}\quad & r_i = y + w_p \cdot \mathbf{1}[\text{pivotal}] + w_r \cdot \mathbf{1}[\text{recovery}] + w_e \cdot \mathbf{1}[\text{enabling}] \\
+  \text{Combined:}\quad & r_i = r_i^{\text{BA}} + r_i^{\text{HS}} - r_i^{\text{OO}}
+\end{align}
+where $w_v{=}0.25$, $w_d{=}0.5$, $w_p{=}0.75$, $w_r{=}0.5$, $w_e{=}0.5$.
+
+\subsection{Policy Training and Evaluation}
+
+Scored transitions are aggregated into a score table $Q(\phi(s), a) = \frac{1}{n_{s,a}} \sum r_i$. The table policy selects $\arg\max_{a} Q(\phi(s), a)$. For unseen states, the policy selects uniformly at random---not the oracle action.
+
+% ==================================================================
+\section{Benchmarks}
+
+\subsection{Stochastic Benchmark (Controlled)}
+Four task families with probabilistic transitions ($p = 0.60$--$0.90$): gate chains, shopping, navigation, and evidence cascades. Designed to produce non-trivial success rates.
+
+\subsection{Real ALFWorld}
+The actual ALFWorld environment \citep{shridhar2021alfworld} in TextWorld mode with natural language observations and admissible action lists. Collection with two LLMs: Claude Haiku~4.5 (30\% success) and Qwen2.5-7B-Instruct (17\% success). Verifier signals auto-extracted from observation diffs (\S\ref{sec:method}).
+
+\subsection{Deterministic Benchmarks (Supporting)}
+Diagnostic (5 families, 10 tasks), WebShop \citep{yao2022webshop} abstraction (3 tasks), ALFWorld-manifest (8 tasks). Binary results for controlled ablation.
+
+% ==================================================================
+\section{Results}
+
+\subsection{Stochastic Benchmark}
+
+\begin{table}[t]
+\centering
+\caption{Stochastic benchmark results (controlled evaluation). $n{=}15$ seeds, 50 rollouts per seed.}
+\label{tab:stochastic}
+\begin{tabular}{lcccc}
+\toprule
+Condition & Success Rate & Partial Credit & Min--Max & Avg Turns \\
+\midrule
+Prompted baseline & 0.792 & 0.747 & 0.70--0.92 & 7.08 \\
+Outcome-only & 0.240 & 0.375 & 0.00--1.00 & 12.61 \\
+Branch-aware & 0.979 & 0.806 & 0.68--1.00 & 4.87 \\
+Hindsight & 0.695 & 0.739 & 0.34--1.00 & 8.02 \\
+\textbf{Combined} & \textbf{1.000} & \textbf{0.823} & \textbf{1.00--1.00} & \textbf{4.60} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Outcome-only scoring is actively harmful: $0.240$ success vs.\ the $0.792$ baseline (Table~\ref{tab:stochastic}). Branch-aware nearly fully recovers ($0.979$). Hindsight degrades below baseline ($0.695$ vs.\ $0.792$) with high variance. Combined achieves perfect success ($1.000$) across all 15 seeds. See Figure~\ref{fig:stochastic}.
+
+\begin{figure}[t]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{figures/fig1_stochastic_main.pdf}
+    \caption{Stochastic benchmark (15 seeds, 50 rollouts).}
+    \label{fig:stochastic}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{figures/fig2_perfamily_heatmap.pdf}
+    \caption{Per-family diagnostic breakdown.}
+    \label{fig:heatmap}
+\end{subfigure}
+\caption{Controlled benchmark results. (a)~Outcome-only degrades far below baseline; combined achieves perfect success. (b)~Branch-aware fails on enabling; hindsight fails on cascade; combined resolves both.}
+\label{fig:controlled}
+\end{figure}
+
+\subsection{Deterministic Benchmarks}
+
+\begin{table}[t]
+\centering
+\caption{Deterministic benchmark results. $n{=}7$ seeds, 50 rollouts per seed.}
+\label{tab:deterministic}
+\begin{tabular}{lccc}
+\toprule
+Condition & Diagnostic & WebShop & ALFWorld-manifest \\
+\midrule
+Prompted & 0.726 & 0.771 & 0.523 \\
+Outcome-only & 0.514 & 0.714 & 0.000 \\
+Branch-aware & 0.971 & 1.000 & 1.000 \\
+Hindsight & 0.857 & 0.714 & 0.000 \\
+\textbf{Combined} & \textbf{1.000} & \textbf{1.000} & \textbf{1.000} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Per-family diagnostic breakdown. Branch-aware fails on enabling ($0.857$); hindsight fails on cascade ($0.286$). Combined: $1.000$ on all families.}
+\label{tab:perfamily}
+\begin{tabular}{lccccc}
+\toprule
+Condition & Cascade & Dead-end & Enabling & Multi-gate & Recovery \\
+\midrule
+Outcome-only & 0.143 & 0.571 & 0.714 & 0.143 & 1.000 \\
+Branch-aware & 1.000 & 1.000 & 0.857 & 1.000 & 1.000 \\
+Hindsight & 0.286 & 1.000 & 1.000 & 1.000 & 1.000 \\
+\textbf{Combined} & \textbf{1.000} & \textbf{1.000} & \textbf{1.000} & \textbf{1.000} & \textbf{1.000} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Real ALFWorld: Training Signal Quality}
+\label{sec:alfworld}
+
+This experiment measures training signal informativeness---how many states each scorer can differentiate---rather than downstream policy success.
+
+\begin{table}[t]
+\centering
+\caption{Raw collection performance on real ALFWorld. CI computed across 3 seeds.}
+\label{tab:alfworld_raw}
+\begin{tabular}{lcccc}
+\toprule
+Model & Success Rate & 95\% CI & Episodes & Transitions \\
+\midrule
+Claude Haiku 4.5 & 30.0\% & $\pm\,2.3\%$ & 150 & 3{,}737 \\
+Qwen2.5-7B-Instruct & 16.7\% & $\pm\,3.5\%$ & 150 & 3{,}962 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Scorer differentiation on real ALFWorld. Branch-aware differentiates $2.6\times$ (Haiku) to $9.4\times$ (7B) more states than outcome-only. Hindsight $=$ outcome-only and combined $=$ branch-aware because auto-extracted signals produce numerical scores but not categorical labels.}
+\label{tab:alfworld_diff}
+\begin{tabular}{lcccc}
+\toprule
+Scorer & Haiku: Diff.\ States & Haiku: \% & 7B: Diff.\ States & 7B: \% \\
+\midrule
+Outcome-only & 143\,/\,1{,}078 & 13.3\% & 41\,/\,1{,}212 & 3.4\% \\
+Branch-aware & 375\,/\,1{,}078 & 34.8\% & 385\,/\,1{,}212 & 31.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{figures/fig3_alfworld_real.pdf}
+    \caption{Real ALFWorld: scorer differentiation and action quality.}
+    \label{fig:alfworld}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{figures/fig6_signal_vs_capability.pdf}
+    \caption{Signal advantage vs.\ model capability.}
+    \label{fig:signal_cap}
+\end{subfigure}
+\caption{Real ALFWorld results with auto-extracted verifier signals.}
+\end{figure}
+
+\textbf{Key findings.} (1)~Branch-aware provides $2.6$--$9.4\times$ more training signal than outcome-only, with the advantage \emph{largest for weaker models}. (2)~Auto-extracted signals (observation diffs and repetition detection) are sufficient. (3)~Hindsight and combined add no benefit when categorical labels are unavailable. (4)~Branch-aware prefers task-relevant actions at 80--82\% of differentiated states vs.\ 54--69\% for outcome-only.
+
+\subsection{Sensitivity Analysis}
+
+\begin{table}[t]
+\centering
+\caption{Exploration rate sensitivity (diagnostic, 3 seeds per rate).}
+\label{tab:ablation}
+\begin{tabular}{lccc}
+\toprule
+Condition & $\epsilon{=}0.3$ & $\epsilon{=}0.5$ & $\epsilon{=}0.7$ \\
+\midrule
+Prompted & 0.853 & 0.667 & 0.527 \\
+Outcome-only & 0.533 & 0.467 & 0.667 \\
+Branch-aware & 1.000 & 0.933 & 0.867 \\
+Hindsight & 0.867 & 0.867 & 0.867 \\
+Combined & 1.000 & 1.000 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ==================================================================
+\section{Analysis}
+
+\subsection{Loop-Action Bias and Stochastic Failure Masking}
+
+In stochastic environments, when a pivotal action fails (probability $1{-}p$), the agent remains in the same state as a stall. Under outcome-only scoring, $E[r(s, a_p)] = p \cdot y_{\text{success}} + (1{-}p) \cdot y_{\text{delayed}}$ while $E[r(s, a_s)] = y_{\text{delayed}}$. The pivotal action's advantage is only $p(y_{\text{success}} - y_{\text{delayed}})$, which can be small. Branch-aware scoring breaks this because verifier signals fire \emph{only on successful pivotal transitions}, creating a reliable score gap.
+
+\subsection{Complementary Failure Modes}
+
+Branch-aware fails on enabling (Table~\ref{tab:perfamily}: $0.857$) because stall actions produce no dead-end penalty. Hindsight fails on cascade ($0.286$) and ALFWorld ($0.000$) because stalls lack categorical labels. On real ALFWorld (\S\ref{sec:alfworld}), hindsight $=$ outcome-only because auto-extracted signals produce numerical scores but not categorical labels, confirming the two signal types are structurally independent.
+
+\subsection{Signal Quality and Model Capability}
+
+The branch-aware scorer's practical value is \emph{inversely correlated} with model capability (Figure~\ref{fig:signal_cap}): at 17\% success (Qwen-7B), outcome-only differentiates 3.4\% of states while branch-aware differentiates 31.8\% ($9.4\times$). At 30\% success (Haiku), the ratio is $2.6\times$. This occurs because auto verifier signals fire on every transition regardless of episode outcome.
+
+% ==================================================================
+\section{Limitations}
+
+\textbf{Auto-signal noise.} Our extraction uses simple text heuristics. More sophisticated methods (classifiers, LLM-as-judge) could improve quality. \textbf{Table-based policy.} Score tables require exact state-hash matches; neural function approximation would relax this. \textbf{Fixed scorer weights.} The qualitative ranking is stable (Table~\ref{tab:ablation}) but margins may shift. \textbf{Manifest abstractions.} WebShop/diagnostic use structural abstractions; real ALFWorld (\S\ref{sec:alfworld}) addresses this for one benchmark. \textbf{Signal quality vs.\ policy performance.} The real ALFWorld experiment measures training signal informativeness, not downstream success. Neural policy evaluation is future work.
+
+% ==================================================================
+\section{Conclusion}
+
+We identified loop-action bias as a mechanistic failure mode of outcome-only credit assignment, amplified by stochastic failure masking. On controlled benchmarks, outcome-only produces policies far worse than the baseline ($0.24$ vs.\ $0.79$), while the combined scorer achieves perfect success ($1.00$). On real ALFWorld, automatically extracted verifier signals enable branch-aware scoring to differentiate $2.6$--$9.4\times$ more states than outcome-only, with the advantage largest for weaker models. When only numerical signals are available, combined reduces to branch-aware---confirming that the core contribution on real environments is the verifier signal mechanism. Translating this signal advantage into downstream policy improvement via neural training is the natural next step.
+
+% ==================================================================
+\section*{Reproducibility Statement}
+
+All code, benchmarks, and configurations are available at the project repository. Controlled results are reproduced on both local (macOS, Python~3.13) and cloud (GCP g2-standard-8, NVIDIA~L4, Python~3.11) infrastructure with exact numerical match. Real ALFWorld experiments are documented with run IDs, commands, and SQL queries. Dependencies are pinned; reproduction instructions are in \texttt{docs/reproducibility.md}.
+
+% ==================================================================
+\bibliographystyle{plainnat}
+\begin{thebibliography}{37}
+
+\bibitem[Andrychowicz et~al.(2017)]{andrychowicz2017hindsight}
+M.~Andrychowicz et~al.
+\newblock Hindsight experience replay.
+\newblock In \emph{NeurIPS}, 2017.
+
+\bibitem[Chen et~al.(2025)]{chen2025gui}
+C.~Chen et~al.
+\newblock {GUI-Shepherd}: Reliable process reward and verification for long-sequence {GUI} tasks.
+\newblock \emph{arXiv:2509.23738}, 2025.
+
+\bibitem[Choudhury(2025)]{choudhury2025process}
+S.~Choudhury.
+\newblock Process reward models for {LLM} agents: Practical framework and directions.
+\newblock \emph{arXiv:2502.10325}, 2025.
+
+\bibitem[Cobbe et~al.(2021)]{cobbe2021training}
+K.~Cobbe et~al.
+\newblock Training verifiers to solve math word problems.
+\newblock \emph{arXiv:2110.14168}, 2021.
+
+\bibitem[{DeepSeek-AI}(2025)]{deepseek2025}
+{DeepSeek-AI}.
+\newblock {DeepSeek-R1}: Incentivizing reasoning capability in {LLMs} via reinforcement learning.
+\newblock \emph{Nature}, 2025.
+
+\bibitem[Fan et~al.(2026)]{fan2026agentprocessbench}
+S.~Fan et~al.
+\newblock {AgentProcessBench}: Diagnosing step-level process quality in tool-using agents.
+\newblock \emph{arXiv:2603.14465}, 2026.
+
+\bibitem[Feng et~al.(2026)]{feng2026rewardflow}
+X.~Feng et~al.
+\newblock {RewardFlow}: Topology-aware reward propagation on state graphs for agentic {RL}.
+\newblock \emph{arXiv:2603.18859}, 2026.
+
+\bibitem[Ge et~al.(2026)]{ge2026leafe}
+R.~Ge et~al.
+\newblock {LEAFE}: Internalizing agency from reflective experience.
+\newblock \emph{arXiv:2603.16843}, 2026.
+
+\bibitem[Hosseini et~al.(2024)]{hosseini2024vstar}
+A.~Hosseini et~al.
+\newblock {V-STaR}: Training verifiers for self-taught reasoners.
+\newblock \emph{arXiv}, 2024.
+
+\bibitem[Kong et~al.(2026)]{kong2026infopo}
+F.~Kong et~al.
+\newblock {InfoPO}: Information-driven policy optimization for user-centric agents.
+\newblock \emph{arXiv:2603.00656}, 2026.
+
+\bibitem[Lai et~al.(2024)]{lai2024step}
+X.~Lai et~al.
+\newblock {Step-DPO}: Step-wise preference optimization for long-chain reasoning.
+\newblock \emph{arXiv}, 2024.
+
+\bibitem[Lightman et~al.(2023)]{lightman2023lets}
+H.~Lightman et~al.
+\newblock Let's verify step by step.
+\newblock \emph{arXiv:2305.20050}, 2023.
+
+\bibitem[Lu et~al.(2026)]{lu2026hisr}
+Z.~Lu et~al.
+\newblock {HISR}: Hindsight information modulated segmental process rewards for multi-turn agentic {RL}.
+\newblock \emph{arXiv:2603.18683}, 2026.
+
+\bibitem[Luo et~al.(2024)]{luo2024improve}
+L.~Luo et~al.
+\newblock Improve mathematical reasoning in language models by automated process supervision.
+\newblock \emph{arXiv:2406.06592}, 2024.
+
+\bibitem[{OpenAI}(2024)]{openai2024reasoning}
+{OpenAI}.
+\newblock Learning to reason with {LLMs}.
+\newblock Technical report, 2024.
+
+\bibitem[Ouyang et~al.(2022)]{ouyang2022training}
+L.~Ouyang et~al.
+\newblock Training language models to follow instructions with human feedback.
+\newblock In \emph{NeurIPS}, 2022.
+
+\bibitem[Pignatelli et~al.(2023)]{pignatelli2023survey}
+E.~Pignatelli et~al.
+\newblock A survey of temporal credit assignment in deep reinforcement learning.
+\newblock \emph{arXiv:2312.01072}, 2023.
+
+\bibitem[Ren et~al.(2024)]{ren2024randomized}
+Z.~Ren, D.~Guo, and M.~L. Littman.
+\newblock Randomized return decomposition.
+\newblock In \emph{ICLR}, 2024.
+
+\bibitem[Schick et~al.(2023)]{schick2023toolformer}
+T.~Schick et~al.
+\newblock Toolformer: Language models can teach themselves to use tools.
+\newblock In \emph{NeurIPS}, 2023.
+
+\bibitem[Setlur et~al.(2024)]{setlur2024rewarding}
+A.~Setlur et~al.
+\newblock Rewarding progress: Scaling automated process verifiers.
+\newblock \emph{arXiv}, 2024.
+
+\bibitem[Shinn et~al.(2023)]{shinn2023reflexion}
+N.~Shinn et~al.
+\newblock Reflexion: Language agents with verbal reinforcement learning.
+\newblock In \emph{NeurIPS}, 2023.
+
+\bibitem[Shridhar et~al.(2021)]{shridhar2021alfworld}
+M.~Shridhar et~al.
+\newblock {ALFWorld}: Aligning text and embodied environments for interactive learning.
+\newblock In \emph{ICLR}, 2021.
+
+\bibitem[Snell et~al.(2024)]{snell2024scaling}
+C.~Snell et~al.
+\newblock Scaling {LLM} test-time compute optimally.
+\newblock \emph{arXiv}, 2024.
+
+\bibitem[Song et~al.(2024)]{song2024trial}
+Y.~Song et~al.
+\newblock Trial and error: Exploration-based trajectory optimization for {LLM} agents.
+\newblock In \emph{ACL}, 2024.
+
+\bibitem[Sutton and Barto(2018)]{sutton2018reinforcement}
+R.~S. Sutton and A.~G. Barto.
+\newblock \emph{Reinforcement Learning: An Introduction}.
+\newblock MIT Press, 2nd edition, 2018.
+
+\bibitem[Tan et~al.(2026)]{tan2026hindsight}
+H.-Z. Tan et~al.
+\newblock Hindsight credit assignment for long-horizon {LLM} agents.
+\newblock \emph{arXiv:2603.08754}, 2026.
+
+\bibitem[Uesato et~al.(2022)]{uesato2022solving}
+J.~Uesato et~al.
+\newblock Solving math word problems with process- and outcome-based feedback.
+\newblock \emph{arXiv:2211.14275}, 2022.
+
+\bibitem[Wang et~al.(2024a)]{wang2024math}
+P.~Wang et~al.
+\newblock {Math-Shepherd}: Verify and reinforce {LLMs} step-by-step.
+\newblock In \emph{ACL}, 2024.
+
+\bibitem[Wang et~al.(2026a)]{wang2026mira}
+T.~Wang et~al.
+\newblock {MiRA}: A subgoal-driven framework for long-horizon {LLM} agents.
+\newblock \emph{arXiv:2603.19685}, 2026.
+
+\bibitem[Yao et~al.(2022)]{yao2022react}
+S.~Yao et~al.
+\newblock {ReAct}: Synergizing reasoning and acting in language models.
+\newblock In \emph{ICLR}, 2022.
+
+\bibitem[Yao et~al.(2022b)]{yao2022webshop}
+S.~Yao et~al.
+\newblock {WebShop}: Towards scalable real-world web interaction with grounded language agents.
+\newblock In \emph{NeurIPS}, 2022.
+
+\bibitem[Zeng et~al.(2024)]{zeng2024agenttuning}
+A.~Zeng et~al.
+\newblock {AgentTuning}: Enabling generalized agent abilities for {LLMs}.
+\newblock In \emph{ICLR}, 2024.
+
+\bibitem[Zhang et~al.(2024)]{zhang2024lema}
+Y.~Zhang et~al.
+\newblock {LEMA}: Learning from mistakes makes {LLM} better reasoner.
+\newblock In \emph{ICML}, 2024.
+
+\bibitem[Zhang et~al.(2025)]{zhang2025criticsearch}
+Y.~Zhang et~al.
+\newblock {CriticSearch}: Fine-grained credit assignment via a retrospective critic.
+\newblock \emph{arXiv:2511.12159}, 2025.
+
+\bibitem[Zhou et~al.(2024)]{zhou2024language}
+A.~Zhou et~al.
+\newblock Language agent tree search.
+\newblock In \emph{ICML}, 2024.
+
+\end{thebibliography}
+
+\end{document}

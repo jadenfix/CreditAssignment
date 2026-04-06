@@ -52,6 +52,18 @@ All experiments use these exact versions, recorded in `requirements-lock.txt`:
 | Temperature | 0.7 | For trajectory diversity |
 | Endpoint | http://localhost:8000/v1/chat/completions | OpenAI chat format |
 
+## Real ALFWorld Stack (GCP only)
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| ALFWorld | 0.4.2 | TextWorld mode (no rendering) |
+| TextWorld | 1.7.0 | Text game engine |
+| spaCy | 3.8.14 | NLP for ALFWorld |
+| ALFWORLD_DATA | json_2.1.1 | Downloaded via `alfworld-download` |
+| Claude Haiku 4.5 | claude-haiku-4-5-20251001 | Anthropic Messages API |
+| Qwen2.5-7B-Instruct | Qwen/Qwen2.5-7B-Instruct | Self-hosted via vLLM 0.6.6, FP16 |
+| Model memory | ~14.2 GB | Fits on L4 (24 GB) |
+
 ## Docker Images (for containerized runs)
 
 | Image | Base | Contents |
@@ -92,6 +104,8 @@ All reported results are traceable to specific run group IDs in `runs/creditlab.
 | LLM collection (Qwen2.5-3B) | group_e904a833fee4 | 3 | 20 | GCP | All trained=1.00, LLM baseline=0.83 |
 | Exploration ablation ε=0.3 | per-run | 3 | 50 | Local | Ranking stable |
 | Exploration ablation ε=0.7 | per-run | 3 | 50 | Local | Ranking stable |
+| **Real ALFWorld (Haiku)** | run_2e6990b98cd4, run_6b56b8e0571f, run_c37097d4b935 | 3 | 50 | GCP | 30.0% success, branch_aware 2.6x differentiation |
+| **Real ALFWorld (Qwen-7B)** | run_00767781c915, run_22c894f94f13, run_74a5173ab1c8 | 3 | 50 | GCP | 16.7% success, branch_aware 9.4x differentiation |
 
 ## Randomness and Reproducibility
 

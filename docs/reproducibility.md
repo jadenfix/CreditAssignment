@@ -139,7 +139,7 @@ creditlab sweep --config configs/alfworld_paper_local.yaml
 
 ALFWorld produces the most extreme separation: outcome_only and hindsight achieve 0.00, while branch_aware and combined achieve 1.00.
 
-## Step 8: Reproduce Exploration Rate Ablation (Table 5)
+## Step 8: Reproduce Exploration Rate Ablation (Table 8)
 
 ```bash
 for rate in 0.3 0.7; do
@@ -349,17 +349,23 @@ scripts/
 
 All reported results trace to specific run group IDs:
 
-| Table | Experiment | Run Group | Platform |
+| Table | Experiment | Run Group / Run ID | Platform |
 |-------|------------|-----------|----------|
-| Table 1 | Stochastic (main) | `group_2cfb2caf7e7d` | Local |
-| Table 1 | Stochastic (reproduction) | `group_d92fc9971c06` | GCP |
+| Table 1 | Stochastic (controlled) | `group_2cfb2caf7e7d` | Local |
+| Table 1 | Stochastic (GCP reproduction) | `group_d92fc9971c06` | GCP |
 | Table 2 | Diagnostic | `group_f410ed95cc83` | Local |
-| Table 2 | Diagnostic (reproduction) | `group_a0acb246112e` | GCP |
+| Table 2 | Diagnostic (GCP) | `group_a0acb246112e` | GCP |
 | Table 2 | WebShop | `group_b25fdde347d6` | Local |
-| Table 2 | ALFWorld | `group_24296be59b90` | Local |
-| Table 4 | LLM collection | `group_e904a833fee4` | GCP |
-| Table 5 | Ablation ε=0.3 | per-run | Local |
-| Table 5 | Ablation ε=0.7 | per-run | Local |
+| Table 2 | ALFWorld-manifest | `group_24296be59b90` | Local |
+| Table 4 | LLM collection (manifest) | `group_e904a833fee4` | GCP |
+| Tables 5-7 | Real ALFWorld (Haiku seed 7) | `run_2e6990b98cd4` | GCP |
+| Tables 5-7 | Real ALFWorld (Haiku seed 11) | `run_6b56b8e0571f` | GCP |
+| Tables 5-7 | Real ALFWorld (Haiku seed 19) | `run_c37097d4b935` | GCP |
+| Tables 5-7 | Real ALFWorld (Qwen-7B seed 7) | `run_00767781c915` | GCP |
+| Tables 5-7 | Real ALFWorld (Qwen-7B seed 11) | `run_22c894f94f13` | GCP |
+| Tables 5-7 | Real ALFWorld (Qwen-7B seed 19) | `run_74a5173ab1c8` | GCP |
+| Table 8 | Ablation ε=0.3 | per-run | Local |
+| Table 8 | Ablation ε=0.7 | per-run | Local |
 
 ## Troubleshooting
 

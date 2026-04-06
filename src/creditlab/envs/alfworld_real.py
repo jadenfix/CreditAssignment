@@ -426,10 +426,15 @@ class RealALFWorldEnv(EnvAdapter):
         return events
 
     def _build_abstract_state(self) -> dict[str, Any]:
+        """Build abstract state for hashing.
+
+        Uses room + inventory status (not turn count) so that the same
+        physical situation produces the same hash across episodes,
+        enabling cross-episode score aggregation.
+        """
         return {
             "phase": self._room or "unknown",
             "mode": "carrying" if self._inventory else "empty",
-            "progress": float(self._turn_count),
             "inventory_count": len(self._inventory),
         }
 

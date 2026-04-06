@@ -184,7 +184,7 @@ def collect_episode(
             transition_id=new_id("trans"), episode_id=episode_id,
             parent_node_id=current_node.node_id, child_node_id=child.node_id,
             turn_index=turn, action=action,
-            observation=ObservationEvent(text=obs_text[:500]),
+            observation=ObservationEvent(text=obs_text[:2000]),
             verifier_events=events,
         ))
 
@@ -236,7 +236,7 @@ def main():
     store = SqliteTrajectoryStore(sqlite_path=args.sqlite_path, artifact_root=args.artifact_root)
     rng = random.Random(args.seed)
 
-    successes, total_turns = 0, 0
+    successes, total_turns, total_fallbacks = 0, 0, 0
     for ep_idx in range(args.num_episodes):
         task = tasks[rng.randrange(len(tasks))]
         t0 = time.time()
@@ -247,15 +247,21 @@ def main():
 
         turns = len(episode.transitions)
         total_turns += turns
+        fallbacks = sum(1 for t in episode.transitions
+                        if t.action.metadata.get("raw_response", "") == "(fallback)")
+        total_fallbacks += fallbacks
         if episode.success:
             successes += 1
         status = "SUCCESS" if episode.success else "fail"
+        fb_str = f" fb={fallbacks}" if fallbacks else ""
         print(f"  [{ep_idx+1}/{args.num_episodes}] {task.metadata.get('task_type', '?')[:20]} "
-              f"turns={turns} {status} ({elapsed:.1f}s)")
+              f"turns={turns} {status}{fb_str} ({elapsed:.1f}s)")
 
     rate = 100 * successes / args.num_episodes if args.num_episodes else 0
+    fb_rate = 100 * total_fallbacks / max(1, total_turns)
     print(f"\nDone. {successes}/{args.num_episodes} ({rate:.1f}%), "
-          f"avg turns={total_turns/args.num_episodes:.1f}")
+          f"avg turns={total_turns/args.num_episodes:.1f}, "
+          f"fallback rate={fb_rate:.1f}% ({total_fallbacks}/{total_turns})")
     print(f"Run ID: {run_id}")
 
 
