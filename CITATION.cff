@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software or reference this work, please cite it as below."
+title: "Branch-Aware Hindsight Credit Assignment for Language-Model Agents Under Matched Budgets"
+authors:
+  - family-names: Fix
+    given-names: Jaden
+type: software
+license: MIT
+repository-code: "https://github.com/jadenfix/CreditAssignment"
+keywords:
+  - credit assignment
+  - language model agents
+  - process reward models
+  - reinforcement learning
+  - ALFWorld
+abstract: >-
+  We identify loop-action bias as a mechanistic failure mode of outcome-only
+  credit assignment for LLM agents and propose branch-aware and hindsight
+  scorers that leverage per-transition verifier signals. Validated on controlled
+  stochastic benchmarks and the real ALFWorld environment with two LLMs using
+  automatically extracted verifier signals.

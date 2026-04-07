@@ -84,9 +84,16 @@ pip show pydantic sqlalchemy pyarrow polars typer pyyaml pytest | grep -E "^(Nam
 
 # Verify benchmark manifests are unchanged
 sha256sum benchmarks/stochastic/v1/tasks.yaml
+# Expected: b687026b8da4d0c9762b7e0e30c85bb2ed4cc3104e5f85a66fc420e512af3543
+
 sha256sum benchmarks/diagnostic/v1/tasks.yaml
+# Expected: e3783512a037af3069f98d94b0040030b5b336c802d6a99b015795d319018bb5
+
 sha256sum benchmarks/webshop/v1/tasks.yaml
+# Expected: 4a43d01ebcad9302454c76b002a38a469ea377bd5891e4f4bbfa649e1876fb76
+
 sha256sum benchmarks/alfworld/v1/tasks.yaml
+# Expected: cdd92c1813d90d70673c714231f3e525fe2a2753ce729532531b3c5cb0abff5b
 ```
 
 ## Experiment Run Groups

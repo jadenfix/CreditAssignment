@@ -22,7 +22,8 @@
 
 \author{
   Jaden Fix \\
-  \texttt{jadenfix@example.com}
+  Independent Researcher \\
+  \texttt{jaden@jadenfix.com}
 }
 
 \date{}
@@ -139,15 +140,15 @@ Diagnostic (5 families, 10 tasks), WebShop \citep{yao2022webshop} abstraction (3
 \centering
 \caption{Stochastic benchmark results (controlled evaluation). $n{=}15$ seeds, 50 rollouts per seed.}
 \label{tab:stochastic}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \toprule
-Condition & Success Rate & Partial Credit & Min--Max & Avg Turns \\
+Condition & Success Rate & Std Dev & Partial Credit \\
 \midrule
-Prompted baseline & 0.792 & 0.747 & 0.70--0.92 & 7.08 \\
-Outcome-only & 0.240 & 0.375 & 0.00--1.00 & 12.61 \\
-Branch-aware & 0.979 & 0.806 & 0.68--1.00 & 4.87 \\
-Hindsight & 0.695 & 0.739 & 0.34--1.00 & 8.02 \\
-\textbf{Combined} & \textbf{1.000} & \textbf{0.823} & \textbf{1.00--1.00} & \textbf{4.60} \\
+Prompted baseline & 0.792 & $\pm\,0.060$ & 0.747 \\
+Outcome-only & 0.240 & $\pm\,0.265$ & 0.375 \\
+Branch-aware & 0.979 & $\pm\,0.083$ & 0.806 \\
+Hindsight & 0.695 & $\pm\,0.184$ & 0.739 \\
+\textbf{Combined} & \textbf{1.000} & $\pm\,\textbf{0.000}$ & \textbf{0.823} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -181,11 +182,11 @@ Outcome-only scoring is actively harmful: $0.240$ success vs.\ the $0.792$ basel
 \toprule
 Condition & Diagnostic & WebShop & ALFWorld-manifest \\
 \midrule
-Prompted & 0.726 & 0.771 & 0.523 \\
-Outcome-only & 0.514 & 0.714 & 0.000 \\
-Branch-aware & 0.971 & 1.000 & 1.000 \\
-Hindsight & 0.857 & 0.714 & 0.000 \\
-\textbf{Combined} & \textbf{1.000} & \textbf{1.000} & \textbf{1.000} \\
+Prompted & $.726 \pm .081$ & $.771 \pm .038$ & $.523 \pm .085$ \\
+Outcome-only & $.514 \pm .254$ & $.714 \pm .488$ & $.000 \pm .000$ \\
+Branch-aware & $.971 \pm .076$ & $1.00 \pm .000$ & $1.00 \pm .000$ \\
+Hindsight & $.857 \pm .098$ & $.714 \pm .488$ & $.000 \pm .000$ \\
+\textbf{Combined} & $\mathbf{1.00 \pm .000}$ & $\mathbf{1.00 \pm .000}$ & $\mathbf{1.00 \pm .000}$ \\
 \bottomrule
 \end{tabular}
 \end{table}

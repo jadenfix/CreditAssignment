@@ -1,0 +1,47 @@
+# Full dependency snapshot from GCP g2-standard-8 (Python 3.11.15)
+# Generated from: /workspace/venv/bin/pip freeze
+# Date: 2026-04-06
+# Platform: Ubuntu 22.04.5 LTS, NVIDIA L4 (24GB), CUDA 12.4
+#
+# To reproduce: pip install -r requirements-lock-full.txt
+# Note: GPU packages (nvidia-*, torch, vllm) require CUDA 12.4
+
+# --- Core CreditLab dependencies ---
+pydantic==2.12.5
+pydantic_core==2.41.5
+SQLAlchemy==2.0.48
+pyarrow==21.0.0
+polars==1.39.3
+typer==0.24.1
+PyYAML==6.0.3
+pytest==8.4.2
+
+# --- ALFWorld stack ---
+alfworld==0.4.2
+textworld==1.7.0
+spacy==3.8.14
+jericho==3.3.1
+fast_downward_textworld==20.6.4
+
+# --- LLM inference (vLLM) ---
+vllm==0.6.6
+torch==2.5.1
+transformers==4.57.6
+tokenizers==0.22.2
+safetensors==0.7.0
+sentencepiece==0.2.1
+xformers==0.0.28.post3
+
+# --- Anthropic API ---
+anthropic==0.86.0
+
+# --- Common ---
+numpy==1.26.4
+requests==2.33.1
+click==8.3.1
+tqdm==4.67.3
+Jinja2==3.1.6
+huggingface_hub==0.36.2
+regex==2026.3.32
+packaging==26.0
+typing_extensions==4.15.0
