@@ -210,7 +210,7 @@ Hindsight & 0.286 & 1.000 & 1.000 & 1.000 & 1.000 \\
 \end{tabular}
 \end{table}
 
-The qualitative pattern observed in the stochastic benchmark transfers to all three deterministic benchmarks (Table~\ref{tab:deterministic}). ALFWorld-manifest exhibits the most extreme separation: outcome-only and hindsight both achieve $0.000$ (complete failure), while branch-aware and combined both achieve $1.000$. Table~\ref{tab:perfamily} reveals the complementary failure modes that motivate the combined scorer: branch-aware underperforms on enabling tasks because stall actions produce no dead-end penalty, while hindsight underperforms on cascade tasks because stall actions lack categorical labels.
+The qualitative pattern observed in the stochastic benchmark transfers to all three deterministic benchmarks (Table~\ref{tab:deterministic}). ALFWorld-manifest exhibits the most extreme separation: outcome-only and hindsight both achieve $0.000$ (complete failure), while branch-aware and combined both achieve $1.000$. We note that the prevalence of $1.000$ scores in these deterministic benchmarks reflects their role as controlled ablations with small state spaces (8 to 15 states per task), where a correct scoring function reliably identifies the optimal action. The stochastic benchmark (Table~\ref{tab:stochastic}) and the real ALFWorld experiment (Section~\ref{sec:alfworld}) provide the non-trivial difficulty ranges ($0.24$ to $1.00$ and $3.4\%$ to $34.8\%$, respectively) needed for meaningful comparison. Table~\ref{tab:perfamily} reveals the complementary failure modes that motivate the combined scorer: branch-aware underperforms on enabling tasks because stall actions produce no dead-end penalty, while hindsight underperforms on cascade tasks because stall actions lack categorical labels.
 
 \subsection{Real ALFWorld: Training Signal Quality}
 \label{sec:alfworld}
@@ -339,7 +339,7 @@ The practical implication is direct: in any agent environment with observable tr
 % ==================================================================
 \section*{Reproducibility Statement}
 
-All code, benchmarks, and configurations are available at the project repository. Controlled results are reproduced on both local (macOS, Python~3.13) and cloud (GCP g2-standard-8, NVIDIA~L4, Python~3.11) infrastructure with exact numerical match. Real ALFWorld experiments are documented with exact run IDs, commands, and SQL queries. Dependencies are pinned in \texttt{requirements-lock-full.txt}; complete reproduction instructions are provided in \texttt{docs/reproducibility.md}.
+All code, benchmarks, configurations, and step-by-step reproduction instructions are publicly available.\footnote{\url{https://github.com/jadenfix/CreditAssignment}} Controlled results are reproduced on both local (macOS, Python~3.13) and cloud (GCP g2-standard-8, NVIDIA~L4, Python~3.11) infrastructure with exact numerical match. Real ALFWorld experiments are documented with exact run IDs, shell commands, and SQL queries for result verification. All Python dependencies are pinned to exact versions in the included lock file. The repository README provides a complete walkthrough from environment setup through result reproduction.
 
 % ==================================================================
 \bibliographystyle{plainnat}
