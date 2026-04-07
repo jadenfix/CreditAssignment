@@ -225,10 +225,10 @@ def fig4_cross_benchmark():
 def fig5_ablation():
     eps_rates = [0.3, 0.5, 0.7]
     data = {
-        "Prompted":     [0.853, 0.667, 0.527],
-        "Outcome-only": [0.533, 0.467, 0.667],
-        "Branch-aware": [1.000, 0.933, 0.867],
-        "Hindsight":    [0.867, 0.867, 0.867],
+        "Prompted":     [0.843, 0.697, 0.549],
+        "Outcome-only": [0.600, 0.486, 0.629],
+        "Branch-aware": [1.000, 0.971, 0.914],
+        "Hindsight":    [0.914, 0.829, 0.829],
         "Combined":     [1.000, 1.000, 1.000],
     }
 
@@ -262,7 +262,6 @@ def fig6_signal_vs_capability():
 
     # Data points: (success_rate, oo_diff%, ba_diff%)
     models = {
-        "Qwen-3B\n(2%)":   (0.02,  1.5, 21.9),
         "Qwen-7B\n(17%)":  (0.167, 3.4, 31.8),
         "Haiku\n(30%)":    (0.300, 13.3, 34.8),
     }
