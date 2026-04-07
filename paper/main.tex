@@ -262,17 +262,17 @@ Branch-aware & 375\,/\,1{,}078 & 34.8\% & 385\,/\,1{,}212 & 31.8\% \\
 
 \begin{table}[t]
 \centering
-\caption{Exploration rate sensitivity (diagnostic, 3 seeds per rate).}
+\caption{Exploration rate sensitivity (diagnostic, 7 seeds per rate, $\pm$ std dev).}
 \label{tab:ablation}
 \begin{tabular}{lccc}
 \toprule
 Condition & $\epsilon{=}0.3$ & $\epsilon{=}0.5$ & $\epsilon{=}0.7$ \\
 \midrule
-Prompted & 0.853 & 0.667 & 0.527 \\
-Outcome-only & 0.533 & 0.467 & 0.667 \\
-Branch-aware & 1.000 & 0.933 & 0.867 \\
-Hindsight & 0.867 & 0.867 & 0.867 \\
-Combined & 1.000 & 1.000 & 1.000 \\
+Prompted & $.843 \pm .039$ & $.697 \pm .080$ & $.549 \pm .049$ \\
+Outcome-only & $.600 \pm .115$ & $.486 \pm .107$ & $.629 \pm .138$ \\
+Branch-aware & $1.00 \pm .000$ & $.971 \pm .076$ & $.914 \pm .107$ \\
+Hindsight & $.914 \pm .107$ & $.829 \pm .076$ & $.829 \pm .076$ \\
+Combined & $1.00 \pm .000$ & $1.00 \pm .000$ & $1.00 \pm .000$ \\
 \bottomrule
 \end{tabular}
 \end{table}

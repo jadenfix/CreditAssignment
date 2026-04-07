@@ -236,17 +236,17 @@ We define an action as *task-relevant* if it matches one of ALFWorld's progress-
 
 ### 5.5 Sensitivity Analysis
 
-*Exploration rate ablation on the diagnostic benchmark, 3 seeds per rate:*
+*Exploration rate ablation on the diagnostic benchmark, 7 seeds per rate ($\pm$ std dev):*
 
 | Condition | $\epsilon = 0.3$ | $\epsilon = 0.5$ | $\epsilon = 0.7$ |
 |-----------|-------|-------|-------|
-| Prompted | 0.853 | 0.667 | 0.527 |
-| Outcome-only | 0.533 | 0.467 | 0.667 |
-| Branch-aware | 1.000 | 0.933 | 0.867 |
-| Hindsight | 0.867 | 0.867 | 0.867 |
-| Combined | 1.000 | 1.000 | 1.000 |
+| Prompted | 0.843 $\pm$ 0.039 | 0.697 $\pm$ 0.080 | 0.549 $\pm$ 0.049 |
+| Outcome-only | 0.600 $\pm$ 0.115 | 0.486 $\pm$ 0.107 | 0.629 $\pm$ 0.138 |
+| Branch-aware | 1.000 $\pm$ 0.000 | 0.971 $\pm$ 0.076 | 0.914 $\pm$ 0.107 |
+| Hindsight | 0.914 $\pm$ 0.107 | 0.829 $\pm$ 0.076 | 0.829 $\pm$ 0.076 |
+| Combined | 1.000 $\pm$ 0.000 | 1.000 $\pm$ 0.000 | 1.000 $\pm$ 0.000 |
 
-*Table 8. Exploration rate sensitivity. The ranking combined $\geq$ branch-aware $\geq$ hindsight $\gg$ outcome-only holds at all tested rates.*
+*Table 8. Exploration rate sensitivity ($n = 7$ seeds). The ranking combined $\geq$ branch-aware $\geq$ hindsight $\gg$ outcome-only holds at all tested rates. Combined achieves 1.000 with zero variance at all rates.*
 
 ## 6. Analysis
 
