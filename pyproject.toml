@@ -27,6 +27,9 @@ wandb = [
 paper = [
   "matplotlib>=3.8,<4",
 ]
+demo = [
+  "pillow>=10,<13",
+]
 alfworld = [
   "alfworld==0.4.2",
 ]

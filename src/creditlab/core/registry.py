@@ -23,14 +23,15 @@ from creditlab.trainers.outcome_only import (
 def create_env(config: ExperimentConfig):
     manifest = config.benchmark.manifest_path
     task_limit = config.benchmark.task_limit
+    seed = int(config.env.config.get("seed", 0))
     if config.env.name == "diagnostic_branch_lab":
-        return DiagnosticBranchLabEnv(manifest_path=manifest, task_limit=task_limit)
+        return DiagnosticBranchLabEnv(manifest_path=manifest, task_limit=task_limit, seed=seed)
     if config.env.name == "webshop":
-        return WebShopEnv(manifest_path=manifest, task_limit=task_limit)
+        return WebShopEnv(manifest_path=manifest, task_limit=task_limit, seed=seed)
     if config.env.name == "alfworld":
-        return ALFWorldEnv(manifest_path=manifest, task_limit=task_limit)
+        return ALFWorldEnv(manifest_path=manifest, task_limit=task_limit, seed=seed)
     if config.env.name == "stochastic":
-        return StochasticEnv(manifest_path=manifest, task_limit=task_limit)
+        return StochasticEnv(manifest_path=manifest, task_limit=task_limit, seed=seed)
     if config.env.name == "alfworld_real":
         from creditlab.envs.alfworld_real import RealALFWorldEnv
         return RealALFWorldEnv(

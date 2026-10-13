@@ -1,0 +1,133 @@
+{
+  "artifacts": {
+    "seed-integrity.gif": {
+      "bytes": 252820,
+      "sha256": "d3eb157c762bb3c4677ea37fcb66916e21837ed5b48c9a95fe51cf5aafbf00d3"
+    },
+    "seed-integrity.mp4": {
+      "bytes": 164354,
+      "sha256": "45044b69f3d3d0650361d4c1e515d882bc2273106fb03ce7b9b4aa9ab05e2988"
+    }
+  },
+  "benchmark": "stochastic/v1",
+  "cross_seed_paths_distinct": true,
+  "same_seed_replay_matches": true,
+  "schema_version": 1,
+  "scope": "provider-free stochastic manifest fixture; no model or paper-performance claim",
+  "seeds": [
+    0,
+    1
+  ],
+  "source_blobs": {
+    "benchmarks/stochastic/v1/tasks.yaml": "e2826242df4cc340b67eba5c05b700059e5a806c",
+    "scripts/generate_seed_integrity_demo.py": "81e1cefd3b0d5f0f0f4da68ce6d0e31cc5d18a8a",
+    "src/creditlab/analysis/sweep.py": "1bf34600f9c4dd140702bc3370ac903dd4383a34",
+    "src/creditlab/core/registry.py": "0bd254dd96460beea41035fb2c0cf9eb8d0f3b72",
+    "src/creditlab/envs/manifest_graph.py": "6d7f4b70422001e97ab84869df060d4e24f32b24"
+  },
+  "source_commit": "b39ab74c07cc56f30e96fd8d955170e012167356",
+  "source_tree": "ffc8450ecf5b4a271e3ca3fc04ae1f45f86aeeb9",
+  "task_id": "stoch_gate_train_01",
+  "traces": {
+    "0": [
+      {
+        "action": "unlock_gate",
+        "from": "start",
+        "observation": "The lock resists. The gate stays shut.",
+        "terminal": false,
+        "to": "start",
+        "turn": 1
+      },
+      {
+        "action": "unlock_gate",
+        "from": "start",
+        "observation": "The lock resists. The gate stays shut.",
+        "terminal": false,
+        "to": "start",
+        "turn": 2
+      },
+      {
+        "action": "unlock_gate",
+        "from": "start",
+        "observation": "The first gate opens.",
+        "terminal": false,
+        "to": "gate_2",
+        "turn": 3
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_2",
+        "observation": "The second gate opens.",
+        "terminal": false,
+        "to": "gate_3",
+        "turn": 4
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_3",
+        "observation": "The third gate opens.",
+        "terminal": false,
+        "to": "gate_4",
+        "turn": 5
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_4",
+        "observation": "The final gate opens. Task complete.",
+        "terminal": true,
+        "to": "success",
+        "turn": 6
+      }
+    ],
+    "1": [
+      {
+        "action": "unlock_gate",
+        "from": "start",
+        "observation": "The first gate opens.",
+        "terminal": false,
+        "to": "gate_2",
+        "turn": 1
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_2",
+        "observation": "The lock resists again.",
+        "terminal": false,
+        "to": "gate_2",
+        "turn": 2
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_2",
+        "observation": "The lock resists again.",
+        "terminal": false,
+        "to": "gate_2",
+        "turn": 3
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_2",
+        "observation": "The second gate opens.",
+        "terminal": false,
+        "to": "gate_3",
+        "turn": 4
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_3",
+        "observation": "The third gate opens.",
+        "terminal": false,
+        "to": "gate_4",
+        "turn": 5
+      },
+      {
+        "action": "unlock_gate",
+        "from": "gate_4",
+        "observation": "The final gate opens. Task complete.",
+        "terminal": true,
+        "to": "success",
+        "turn": 6
+      }
+    ]
+  }
+}

@@ -100,6 +100,7 @@ class SweepRunner:
         if collect_config.policy.name not in ("vllm_server",):
             collect_config.policy.name = "prompted"
         collect_config.policy.config["seed"] = seed
+        collect_config.env.config["seed"] = seed
         env = create_env(collect_config)
         policy = create_policy(collect_config.policy.name, collect_config.policy.config, collect_config.store.artifact_root)
         context = RunContext(
@@ -127,6 +128,7 @@ class SweepRunner:
         eval_config = self.config.model_copy(deep=True)
         eval_config.policy.name = "prompted"
         eval_config.policy.config["seed"] = seed
+        eval_config.env.config["seed"] = seed
         env = create_env(eval_config)
         policy = create_policy(eval_config.policy.name, eval_config.policy.config, eval_config.store.artifact_root)
         context = RunContext(
@@ -164,7 +166,8 @@ class SweepRunner:
         train_result = trainer.fit([source_run], scorer_name=scorer_name, budget=train_config.experiment.budgets)
         eval_config = self.config.model_copy(deep=True)
         eval_config.policy.name = "table"
-        eval_config.policy.config = {"model_path": train_result["model_path"]}
+        eval_config.policy.config = {"model_path": train_result["model_path"], "seed": seed}
+        eval_config.env.config["seed"] = seed
         env = create_env(eval_config)
         policy = create_policy(eval_config.policy.name, eval_config.policy.config, eval_config.store.artifact_root)
         context = RunContext(

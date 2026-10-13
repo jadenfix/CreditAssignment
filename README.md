@@ -12,6 +12,14 @@ We identify *loop-action bias* as a mechanistic failure mode of outcome-only cre
 | Real ALFWorld, Haiku (scorer diff.) | 13.3% | **34.8%** | = branch-aware |
 | Real ALFWorld, Qwen-7B (scorer diff.) | 3.4% | **31.8%** | = branch-aware |
 
+## Actual workflow demo
+
+![CreditLab stochastic seed integrity demo](media/demo/seed-integrity.gif)
+
+[Watch the MP4](media/demo/seed-integrity.mp4) · [Inspect the capture receipt](media/demo/capture.json)
+
+This provider-free demo executes the checked-in `stochastic/v1` manifest through the real environment adapter. It shows that one seed is repeatable while seeds 0 and 1 produce distinct stochastic paths. The capture is pinned to its exact runtime source commit and guarded by `scripts/verify_seed_integrity_demo.py`. It does not exercise a language model or validate the paper's performance claims.
+
 ## Reproducing the Results
 
 ### Prerequisites
